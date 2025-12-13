@@ -47,6 +47,10 @@ class DirectedGraph(Graph):
             self.adjacency[v.id] = []
         else:
             raise ValueError(f"Vertex with id {v.id} already exists")
+        
+    def has_vertex(self, v: Vertex) -> bool:
+        """Check if a vertex exists in the graph."""
+        return v.id in self.vertices
 
     def add_edge(self, e: Edge):
         # Ensure both vertices exist in adjacency
@@ -61,6 +65,18 @@ class DirectedGraph(Graph):
             self.adjacency[e.source].append(e.target)
         else:
             raise ValueError(f"Edge from {e.source} to {e.target} already exists")
+        
+    def has_edge(self, e: Edge) -> bool:
+        """Check if an edge exists from source to target."""
+        return (e.source, e.target) in self.edges
+    
+    def remove_edge(self, e: Edge):
+        """Remove an edge from the graph."""
+        if (e.source, e.target) in self.edges:
+            del self.edges[(e.source, e.target)]
+            self.adjacency[e.source].remove(e.target)
+        else:
+            raise ValueError(f"Edge from {e.source} to {e.target} does not exist")
 
     def edge_count(self):
         """Return total number of directed edges (counts duplicates)."""
