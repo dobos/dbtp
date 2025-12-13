@@ -126,6 +126,6 @@ class DirectedGraph(Graph):
         
         # Check if graph has a cycle
         if len(topo_order) != len(vertices):
-            raise CyclicGraphError("Graph contains a cycle; cannot generate a valid schedule")
+            raise CyclicGraphError("Graph contains a cycle")
         
         return topo_order

@@ -13,6 +13,7 @@ class ScheduleGenerator:
         transaction_count: int = 4,
         edge_count: int = 4,
         acyclic: bool = True,
+        cyclic: bool = False,
         max_attempts: int = None
     ) -> DirectedGraph:
 
@@ -26,11 +27,30 @@ class ScheduleGenerator:
             A DirectedGraph representing the precedence graph
         """
 
+        if cyclic and acyclic:
+            raise ValueError("Graph cannot be both cyclic and acyclic")
+
         vertices = [ Vertex(id=i, label=i) for i in range(1, transaction_count + 1) ]
         graph = DirectedGraph(vertices=vertices)
 
-        # Randomly add directed edges while ensuring acyclicity/cyclicity constraint
         added_edges = 0
+
+        if cyclic:
+            # Create a random cycle to guarantee cyclicity
+            # Choose a random subset of vertices for the cycle (at least 2)
+            cycle_length = min(random.randint(2, transaction_count), edge_count)
+            cycle_vertices = random.sample(range(1, transaction_count + 1), cycle_length)
+            
+            # Add edges to form a cycle
+            for i in range(cycle_length):
+                src = cycle_vertices[i]
+                dst = cycle_vertices[(i + 1) % cycle_length]
+                graph.add_edge(Edge(source=src, target=dst))
+            
+            added_edges = cycle_length
+
+        # Randomly add directed edges while ensuring acyclicity/cyclicity constraint
+
         max_attempts = edge_count * 20 if max_attempts is None else max_attempts  # Prevent infinite loops
         attempts = 0
         
@@ -67,81 +87,9 @@ class ScheduleGenerator:
             raise RuntimeError(f"Failed to generate acyclic graph within max attempts")
 
         return graph
-    
-    @classmethod
-    def generate_random_cyclic_precedence_graph(
-        cls,
-        transaction_count: int = 4,
-        edge_count: int = 4,
-        max_attempts: int = None
-    ) -> DirectedGraph:
-        
-        """
-        Generate a random cyclic precedence graph.
-        
-        Strategy: First create a cycle to guarantee the graph is cyclic,
-        then add remaining edges randomly.
-        
-        Args:
-            transaction_count: Number of transactions (vertices) in the graph
-            edge_count: Number of edges to add to the graph
-            max_attempts: Maximum attempts to add random edges after the cycle
-            
-        Returns:
-            A DirectedGraph that is guaranteed to be cyclic
-        """
-
-        if transaction_count < 2:
-            raise ValueError("Need at least 2 transactions to create a cyclic graph")
-        
-        if edge_count < 2:
-            raise ValueError("Need at least 2 edges to create a cycle")
-        
-        vertices = [Vertex(id=i, label=i) for i in range(1, transaction_count + 1)]
-        graph = DirectedGraph(vertices=vertices)
-        
-        # Step 1: Create a random cycle to guarantee cyclicity
-        # Choose a random subset of vertices for the cycle (at least 2)
-        cycle_length = min(random.randint(2, transaction_count), edge_count)
-        cycle_vertices = random.sample(range(1, transaction_count + 1), cycle_length)
-        
-        # Add edges to form a cycle
-        for i in range(cycle_length):
-            src = cycle_vertices[i]
-            dst = cycle_vertices[(i + 1) % cycle_length]
-            graph.add_edge(Edge(source=src, target=dst))
-        
-        added_edges = cycle_length
-        
-        # Step 2: Add remaining edges randomly
-        max_attempts = (edge_count - added_edges) * 20 if max_attempts is None else max_attempts
-        attempts = 0
-        
-        while added_edges < edge_count and attempts < max_attempts:
-            attempts += 1
-            src = random.randint(1, transaction_count)
-            dst = random.randint(1, transaction_count)
-            
-            if src == dst:
-                continue
-            
-            edge = Edge(source=src, target=dst)
-            
-            # Check if edge already exists
-            if graph.has_edge(edge):
-                continue
-            
-            # Add the edge (no need to check for cycles since we want cyclic graphs)
-            graph.add_edge(edge)
-            added_edges += 1
-            
-        if attempts == max_attempts and added_edges < edge_count:
-            raise RuntimeError(f"Failed to generate cyclic graph with {edge_count} edges within max attempts")
-        
-        return graph
 
     @classmethod
-    def generate_from_precedence_graph(
+    def generate_schedule_from_acyclic_precedence_graph(
         cls,
         graph: DirectedGraph,
         must_read_written: bool = False,
@@ -155,7 +103,7 @@ class ScheduleGenerator:
         1. For each edge (i, j) in the precedence graph, assign a unique data item X_ij
         2. Transaction i will WRITE to X_ij, and transaction j will READ from X_ij
         3. This creates a write-read conflict: i -> j in the precedence graph
-        4. Operations are ordered using topological sort to ensure precedence is maintained
+        4. Operations are ordered using a linear ordering that respects edges where possible
 
         When must_read_written is True, every WRITE operation is preceded by a READ of the same item
         by the same transaction (unless that read was already added for an incoming edge).
@@ -187,18 +135,19 @@ class ScheduleGenerator:
                 edge_items[(source, target)] = item_name
                 item_counter += 1
 
-        topo_order = graph.topological_sort()
+        # Try topological sort, if it fails (cyclic), use vertex order as-is
+        ordering = graph.topological_sort()
 
         # Track reads/writes already added per transaction to avoid duplicating ops
         reads_by_tx = {tx: set() for tx in graph.vertices}
         writes_by_tx = {tx: set() for tx in graph.vertices}
 
-        # Generate operations based on topological order
-        # For each transaction in topological order:
+        # Generate operations based on ordering
+        # For each transaction in order:
         #   1. First, READ items from incoming edges
         #   2. Optionally WRITE items for incoming reads (must_write_read)
         #   3. Then, WRITE items for outgoing edges (optionally preceded by a READ)
-        for tx1 in topo_order:
+        for tx1 in ordering:
             # Collect all incoming edges to this transaction
             incoming_items = []
             for tx2 in graph.vertices:
@@ -237,6 +186,70 @@ class ScheduleGenerator:
                 operations.append(Operation(tx=tx1, op=OperationType.WRITE, item=item_name))
                 writes_by_tx[tx1].add(item_name)
 
+        return Schedule(id=1, operations=operations)
+
+    @classmethod
+    def generate_schedule_from_cyclic_precedence_graph(
+        cls,
+        graph: DirectedGraph,
+        must_read_written: bool = False,
+        must_write_read: bool = False
+    ) -> Schedule:
+        """
+        Generate a schedule from a cyclic precedence graph by iterating edges.
+
+        For each edge (i, j):
+        - Transaction i WRITEs a unique data item X_ij
+        - Transaction j READs the same item X_ij
+        - This creates a write-read conflict: i -> j
+
+        Args:
+            graph: A directed graph (possibly cyclic) where vertices are transaction IDs
+            must_read_written: If True, ensure each WRITE is preceded by a READ of the same item
+            must_write_read: If True, ensure each READ is followed by a WRITE of the same item
+
+        Returns:
+            A Schedule with operations that produce the given precedence graph
+        """
+        operations = []
+        
+        # Track reads/writes per transaction
+        reads_by_tx = {tx: set() for tx in graph.vertices}
+        writes_by_tx = {tx: set() for tx in graph.vertices}
+        
+        # Assign unique data items to each edge
+        edge_items = {}
+        item_counter = 0
+        
+        for source in graph.vertices:
+            for target in graph.adjacency[source]:
+                edge = graph.edges[(source, target)]
+                if edge.label is None:
+                    item_name = f"{Constants.LETTERS[item_counter]}"
+                else:
+                    item_name = edge.label
+                edge_items[(source, target)] = item_name
+                item_counter += 1
+        
+        # Iterate through edges and add operations
+        for (source, target), item_name in sorted(edge_items.items()):
+            # Add WRITE for source transaction
+            if must_read_written and item_name not in reads_by_tx[source]:
+                operations.append(Operation(tx=source, op=OperationType.READ, item=item_name))
+                reads_by_tx[source].add(item_name)
+            
+            operations.append(Operation(tx=source, op=OperationType.WRITE, item=item_name))
+            writes_by_tx[source].add(item_name)
+            
+            # Add READ for target transaction
+            operations.append(Operation(tx=target, op=OperationType.READ, item=item_name))
+            reads_by_tx[target].add(item_name)
+            
+            # Add WRITE for target if must_write_read is enabled
+            if must_write_read and item_name not in writes_by_tx[target]:
+                operations.append(Operation(tx=target, op=OperationType.WRITE, item=item_name))
+                writes_by_tx[target].add(item_name)
+        
         return Schedule(id=1, operations=operations)
 
     @classmethod
