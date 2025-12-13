@@ -93,3 +93,10 @@ class TestSchedule(unittest.TestCase):
         # Serializable: acyclic dependency T1 -> T2
         schedule2 = Schedule.parse("S_2 : R_1(A), W_1(A), R_2(A), W_2(B)")
         self.assertTrue(schedule2.is_conflict_serializable())
+
+    def test_serialize(self):
+        schedule = Schedule.parse("S_1 : R_1(A), W_2(A), W_1(B), R_2(B)")
+        serial = schedule.serialize()
+        
+        expected = "S_1 : R_1(A), W_1(B), W_2(A), R_2(B)"
+        self.assertEqual(str(serial), expected)        

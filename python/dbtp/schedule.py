@@ -134,3 +134,22 @@ class Schedule():
             return True
         except CyclicGraphError:
             return False
+        
+    def serialize(self) -> 'Schedule':
+        """
+        Return a serial schedule equivalent to this schedule if it is conflict-serializable.
+        Raises an error if the schedule is not conflict-serializable.
+        """
+        if not self.is_conflict_serializable():
+            raise ValueError("Schedule is not conflict-serializable")
+        
+        precedence_graph = self.build_precedence_graph()
+        sorted_tx_ids = precedence_graph.topological_sort()
+        
+        serial_operations = []
+        for tx_id in sorted_tx_ids:
+            for op in self.operations:
+                if op.tx == tx_id:
+                    serial_operations.append(op)
+        
+        return Schedule(id=self.id, operations=serial_operations)
