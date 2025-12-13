@@ -14,7 +14,10 @@ class ScheduleGeneratorTest(unittest.TestCase):
     
     def test_generate_random_precedence_graph(self):
         """Test generation of precedence graph from schedule"""
-        graph = ScheduleGenerator.generate_random_precedence_graph(acyclic=True)
+        graph = ScheduleGenerator.generate_random_precedence_graph(
+            acyclic = True,
+            cyclic = False
+        )
         
         # Should have 4 vertices and 4 edges
         self.assertEqual(len(graph.vertices), 4)
@@ -29,7 +32,10 @@ class ScheduleGeneratorTest(unittest.TestCase):
 
     def test_generate_random_cyclic_precedence_graph(self):
         """Test generation of precedence graph from schedule"""
-        graph = ScheduleGenerator.generate_random_cyclic_precedence_graph()
+        graph = ScheduleGenerator.generate_random_precedence_graph(
+            acyclic = False,
+            cyclic = True
+        )
         
         # Should have 4 vertices and 4 edges
         self.assertEqual(len(graph.vertices), 4)
@@ -50,7 +56,7 @@ class ScheduleGeneratorTest(unittest.TestCase):
         ]
         
         graph = DirectedGraph(vertices=vertices, edges=edges)
-        schedule = ScheduleGenerator.generate_from_precedence_graph(graph)
+        schedule = ScheduleGenerator.generate_schedule_from_acyclic_precedence_graph(graph)
         
         # Should have 2 operations: W_1(A), R_2(A)
         self.assertEqual(len(schedule.operations), 2)
@@ -77,7 +83,7 @@ class ScheduleGeneratorTest(unittest.TestCase):
         ]
         
         graph = DirectedGraph(vertices=vertices, edges=edges)
-        schedule = ScheduleGenerator.generate_from_precedence_graph(graph)
+        schedule = ScheduleGenerator.generate_schedule_from_acyclic_precedence_graph(graph)
         
         # Should have 4 operations: W_1(A), R_2(A), W_2(B), R_3(B)
         self.assertEqual(len(schedule.operations), 4)
@@ -115,29 +121,74 @@ class ScheduleGeneratorTest(unittest.TestCase):
         
         graph = DirectedGraph(vertices=vertices, edges=edges)
 
-        schedule = ScheduleGenerator.generate_from_precedence_graph(
+        schedule = ScheduleGenerator.generate_schedule_from_acyclic_precedence_graph(
             graph
         )
         self.assertEqual(str(schedule), "S_1 : W_1(A), W_1(B), R_2(A), W_2(C), R_3(B), W_3(D), R_4(C), R_4(D)")
 
-        schedule = ScheduleGenerator.generate_from_precedence_graph(
+        schedule = ScheduleGenerator.generate_schedule_from_acyclic_precedence_graph(
             graph,
             must_read_written = True
         )
         self.assertEqual(str(schedule), "S_1 : R_1(A), W_1(A), R_1(B), W_1(B), R_2(A), R_2(C), W_2(C), R_3(B), R_3(D), W_3(D), R_4(C), R_4(D)")
 
-        schedule = ScheduleGenerator.generate_from_precedence_graph(
+        schedule = ScheduleGenerator.generate_schedule_from_acyclic_precedence_graph(
             graph,
             must_write_read = True
         )
         self.assertEqual(str(schedule), "S_1 : W_1(A), W_1(B), R_2(A), W_2(A), W_2(C), R_3(B), W_3(B), W_3(D), R_4(C), R_4(D), W_4(C), W_4(D)")
 
-        schedule = ScheduleGenerator.generate_from_precedence_graph(
+        schedule = ScheduleGenerator.generate_schedule_from_acyclic_precedence_graph(
             graph,
             must_read_written = True,
             must_write_read = True
         )
         self.assertEqual(str(schedule), "S_1 : R_1(A), W_1(A), R_1(B), W_1(B), R_2(A), W_2(A), R_2(C), W_2(C), R_3(B), W_3(B), R_3(D), W_3(D), R_4(C), R_4(D), W_4(C), W_4(D)")
+
+    def test_cyclic_graph(self):
+        """Test cyclic precedence: T1 -> T2, T2 -> T4, T4 -> T1, T1 -> T3"""
+        vertices = [
+            Vertex(id=1, label=1),
+            Vertex(id=2, label=2),
+            Vertex(id=3, label=3),
+            Vertex(id=4, label=4)
+        ]
+        edges = [
+            Edge(source=1, target=2, label=None),
+            Edge(source=2, target=4, label=None),
+            Edge(source=4, target=1, label=None),
+            Edge(source=1, target=3, label=None)
+        ]
+        
+        graph = DirectedGraph(vertices=vertices, edges=edges)
+
+        schedule = ScheduleGenerator.generate_schedule_from_cyclic_precedence_graph(
+            graph
+        )
+
+        self.assertEqual(str(schedule), "S_1 : W_1(A), R_2(A), W_1(B), R_3(B), W_2(C), R_4(C), W_4(D), R_1(D)")
+
+        schedule = ScheduleGenerator.generate_schedule_from_cyclic_precedence_graph(
+            graph,
+            must_read_written = True
+        )
+
+        self.assertEqual(str(schedule), "S_1 : R_1(A), W_1(A), R_2(A), R_1(B), W_1(B), R_3(B), R_2(C), W_2(C), R_4(C), R_4(D), W_4(D), R_1(D)")
+
+        schedule = ScheduleGenerator.generate_schedule_from_cyclic_precedence_graph(
+            graph,
+            must_write_read = True
+        )
+
+        self.assertEqual(str(schedule), "S_1 : W_1(A), R_2(A), W_2(A), W_1(B), R_3(B), W_3(B), W_2(C), R_4(C), W_4(C), W_4(D), R_1(D), W_1(D)")
+
+        schedule = ScheduleGenerator.generate_schedule_from_cyclic_precedence_graph(
+            graph,
+            must_read_written = True,
+            must_write_read = True
+        )
+
+        self.assertEqual(str(schedule), "S_1 : R_1(A), W_1(A), R_2(A), W_2(A), R_1(B), W_1(B), R_3(B), W_3(B), R_2(C), W_2(C), R_4(C), W_4(C), R_4(D), W_4(D), R_1(D), W_1(D)")
 
     def test_generate_conflict_equivalent_permutations(self):
         schedule = Schedule.parse("S_1 : W_1(A), W_1(B), R_2(A), W_2(C), R_3(B), W_3(D), R_4(C), R_4(D)")
