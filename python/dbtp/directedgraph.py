@@ -42,7 +42,11 @@ class DirectedGraph(Graph):
                 edges += f"{self.vertices[source]} -> {self.vertices[target]}\n"
         return edges
     
-    def latex(self, radius: float = 3.0) -> str:
+    def latex(
+        self,
+        radius: float = 1.5
+    ) -> str:
+        
         """Generate LaTeX representation of the directed graph using TikZ.
         
         Args:
@@ -52,7 +56,7 @@ class DirectedGraph(Graph):
         
         # Add vertices arranged on a circle
         num_vertices = len(self.vertices)
-        for i, v in enumerate(self.vertices.values()):
+        for i, v in enumerate(sorted(self.vertices.values(), key=lambda v: v.id)):
             angle = 360 * i / num_vertices
             x = radius * math.cos(math.radians(angle))
             y = radius * math.sin(math.radians(angle))
