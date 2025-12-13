@@ -3,6 +3,24 @@ import unittest
 from dbtp.directedgraph import DirectedGraph, CyclicGraphError, Edge, Vertex
 
 class DirectedGraphTest(unittest.TestCase):
+    def test_str(self):
+        g = DirectedGraph()
+        a, b = Vertex(0, "a"), Vertex(1, "b")
+        g.add_vertex(a)
+        g.add_vertex(b)
+        g.add_edge(Edge(a.id, b.id, "A"))
+        
+        res = str(g)
+        expected = "a -[A]-> b\n"
+        self.assertEqual(res, expected)
+
+        g.add_vertex(Vertex(2, "c"))
+        g.add_edge(Edge(b.id, 2))
+
+        res = str(g)
+        expected = "a -[A]-> b\nb -> c\n"
+        self.assertEqual(res, expected)
+
     def test_add_vertex_and_vertex_count(self):
         g = DirectedGraph()
         a = Vertex(0, "a")
@@ -76,9 +94,3 @@ class DirectedGraphTest(unittest.TestCase):
         g.add_edge(Edge(c.id, a.id))
         with self.assertRaises(CyclicGraphError):
             g.topological_sort()
-
-    if __name__ == "__main__":
-        unittest.main()
-
-if __name__ == "__main__":
-    unittest.main()

@@ -10,6 +10,7 @@ class OperationTest(unittest.TestCase):
             (OperationType.LOCK, "z", 3, "L_3(z)"),
             (OperationType.SLOCK, "s", 4, "S_4(s)"),
             (OperationType.XLOCK, "t", 5, "X_5(t)"),
+            (OperationType.UNLOCK, "t", 6, "U_6(t)"),
         ]
         for op_type, item, tx, expected in cases:
             with self.subTest(op_type=op_type, item=item, tx=tx):
@@ -19,11 +20,26 @@ class OperationTest(unittest.TestCase):
         self.assertEqual(str(Operation(tx=10, op=OperationType.COMMIT)), "COMMIT_10")
         self.assertEqual(str(Operation(tx=11, op=OperationType.ROLLBACK)), "ROLLBACK_11")
 
-    def test_str_unknown_op_unlock(self):
-        self.assertEqual(str(Operation(tx=7, op=OperationType.UNLOCK)), "7:UNKNOWN_OP")
+    def test_str_unknown_op(self):
+        self.assertEqual(str(Operation(tx=7, op="BLA")), "UNKNOWN_OP_7")
 
     def test_str_item_none_shows_None(self):
         self.assertEqual(str(Operation(tx=9, op=OperationType.READ, item=None)), "R_9(None)")
+
+    def test_latex(self):
+        cases = [
+            (OperationType.READ, "x", 1, "r_{1}(x)"),
+            (OperationType.WRITE, "y", 2, "w_{2}(y)"),
+            (OperationType.LOCK, "z", 3, "l_{3}(z)"),
+            (OperationType.SLOCK, "s", 4, "s_{4}(s)"),
+            (OperationType.XLOCK, "t", 5, "x_{5}(t)"),
+            (OperationType.UNLOCK, "u", 6, "u_{6}(u)"),
+            (OperationType.COMMIT, None, 10, "\\text{COMMIT}_{10}"),
+            (OperationType.ROLLBACK, None, 11, "\\text{ROLLBACK}_{11}"),
+        ]
+        for op_type, item, tx, expected in cases:
+            with self.subTest(op_type=op_type, item=item, tx=tx):
+                self.assertEqual(Operation(tx=tx, op=op_type, item=item).latex(), expected)
 
     def test_parse(self):
         cases = [

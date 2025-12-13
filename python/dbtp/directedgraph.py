@@ -31,6 +31,16 @@ class DirectedGraph(Graph):
             for e in edges:    
                 self.add_edge(e)
 
+    def __str__(self) -> str:
+        # Generate a list of the edges in string format
+        edges = ""
+        for (source, target), e in self.edges.items():
+            if e.label is not None:
+                edges += f"{self.vertices[source]} -[{e.label}]-> {self.vertices[target]}\n"
+            else:
+                edges += f"{self.vertices[source]} -> {self.vertices[target]}\n"
+        return edges
+
     def add_vertex(self, v: Vertex):
         if v.id not in self.vertices:
             self.vertices[v.id] = v

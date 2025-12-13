@@ -18,13 +18,22 @@ class Operation:
     op: OperationType
     item: str = None
 
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Operation):
+            return NotImplementedError()
+        return self.tx == other.tx and self.op == other.op and self.item == other.item
+
+    def __repr__(self) -> str:
+        return f"Operation(tx={self.tx}, op={self.op}, item={self.item})"
+
     def __str__(self):
         if self.op in {
             OperationType.READ,
             OperationType.WRITE,
             OperationType.LOCK,
             OperationType.SLOCK,
-            OperationType.XLOCK
+            OperationType.XLOCK,
+            OperationType.UNLOCK
         }:
             return f"{self.op.name[0]}_{self.tx}({self.item})"
         elif self.op == OperationType.COMMIT:
@@ -33,6 +42,23 @@ class Operation:
             return f"ROLLBACK_{self.tx}"
         else:
             return f"UNKNOWN_OP_{self.tx}"
+        
+    def latex(self) -> str:
+        if self.op in {
+            OperationType.READ,
+            OperationType.WRITE,
+            OperationType.LOCK,
+            OperationType.SLOCK,
+            OperationType.XLOCK,
+            OperationType.UNLOCK
+        }:
+            return f"{self.op.name[0].lower()}_{{{self.tx}}}({self.item})"
+        elif self.op == OperationType.COMMIT:
+            return f"\\text{{COMMIT}}_{{{self.tx}}}"
+        elif self.op == OperationType.ROLLBACK:
+            return f"\\text{{ROLLBACK}}_{{{self.tx}}}"
+        else:
+            return f"\\text{{UNKNOWN\_OP}}_{{{self.tx}}}"
         
     @staticmethod
     def parse(value: str) -> 'Operation':

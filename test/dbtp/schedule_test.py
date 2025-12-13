@@ -13,7 +13,19 @@ class TestSchedule(unittest.TestCase):
         )
         
         res = str(t)
-        self.assertEqual(res, "T_1 : R_1(A), W_1(B)")
+        self.assertEqual(res, "S_1 : R_1(A), W_1(B)")
+
+    def test_latex(self):
+        t = Schedule(
+            id = 1,
+            operations=[
+                Operation(tx=1, op=OperationType.READ, item="A"),
+                Operation(tx=1, op=OperationType.WRITE, item="B")
+            ]
+        )
+        
+        res = t.latex()
+        self.assertEqual(res, "S_{1} : r_{1}(A), w_{1}(B)")
 
     def test_parse(self):
         s = "S_2 : R_2(X), W_2(Y), COMMIT_2"
@@ -35,14 +47,7 @@ class TestSchedule(unittest.TestCase):
         self.assertIsNone(schedule.operations[2].item)
 
     def test_build_conflict_graph(self):
-        ops = [
-            Operation(tx=1, op=OperationType.READ, item="A"),
-            Operation(tx=2, op=OperationType.WRITE, item="A"),
-            Operation(tx=1, op=OperationType.WRITE, item="B"),
-            Operation(tx=2, op=OperationType.READ, item="B"),
-        ]
-        schedule = Schedule(id=1, operations=ops)
-        
+        schedule = Schedule.parse("S_1 : R_1(A), W_2(A), W_1(B), R_2(B)")        
         graph = schedule.build_conflict_graph()
         
         # There should be edges representing conflicts
@@ -54,3 +59,11 @@ class TestSchedule(unittest.TestCase):
         actual_edges = set((edge.source, edge.target) for edge in graph.edges.values())
         
         self.assertEqual(actual_edges, expected_edges)
+
+    def test_is_conflict_equivalent_with(self):
+        schedule1 = Schedule.parse("S_1 : R_1(A), W_2(A)")
+        schedule2 = Schedule.parse("S_2 : W_2(A), R_1(A)")
+        self.assertFalse(schedule1.is_conflict_equivalent_with(schedule2))
+        
+        schedule3 = Schedule.parse("S_3 : R_1(A), W_2(A)")
+        self.assertTrue(schedule1.is_conflict_equivalent_with(schedule3))
