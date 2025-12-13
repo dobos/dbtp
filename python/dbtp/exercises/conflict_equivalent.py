@@ -145,6 +145,9 @@ class ConflictEquivalentExercise:
         print("Conflict graphs:")
 
         for schedule in schedules:
-            graph = schedule.build_conflict_graph()
+            graph = schedule.build_precedence_graph()
             print(f"Conflict graph for Schedule S_{schedule.id}:")
-            print(str(graph))
+            if self.latex:
+                print(graph.latex())
+            else:
+                print(str(graph))

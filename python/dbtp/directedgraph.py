@@ -1,6 +1,7 @@
 from typing import Iterable, Optional, Any, List, Protocol
 
 from .graph import Graph, Vertex, Edge
+import math
 
 class CyclicGraphError(Exception):
     """Exception raised when a cycle is detected in the directed graph."""
@@ -40,6 +41,30 @@ class DirectedGraph(Graph):
             else:
                 edges += f"{self.vertices[source]} -> {self.vertices[target]}\n"
         return edges
+    
+    def latex(self, radius: float = 3.0) -> str:
+        """Generate LaTeX representation of the directed graph using TikZ.
+        
+        Args:
+            radius: Radius of the circle on which nodes are arranged (default: 3.0)
+        """
+        latex_str = "\\begin{tikzpicture}[->,>=Stealth,shorten >=1pt,auto,node distance=3cm, thick,main node/.style={circle,draw,font=\\sffamily\\Large\\bfseries}]\n"
+        
+        # Add vertices arranged on a circle
+        num_vertices = len(self.vertices)
+        for i, v in enumerate(self.vertices.values()):
+            angle = 360 * i / num_vertices
+            x = radius * math.cos(math.radians(angle))
+            y = radius * math.sin(math.radians(angle))
+            latex_str += f"\\node[main node] ({v.id}) at ({x:.2f},{y:.2f}) {{$ {v} $}};\n"
+        
+        # Add edges
+        for (source, target), e in self.edges.items():
+            label_str = f"[{e.label}]" if e.label is not None else ""
+            latex_str += f"\\path ({source}) edge {label_str} ({target});\n"
+        
+        latex_str += "\\end{tikzpicture}\n"
+        return latex_str
 
     def add_vertex(self, v: Vertex):
         if v.id not in self.vertices:
