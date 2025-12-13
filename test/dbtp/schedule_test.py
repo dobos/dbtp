@@ -67,3 +67,29 @@ class TestSchedule(unittest.TestCase):
         
         schedule3 = Schedule.parse("S_3 : R_1(A), W_2(A)")
         self.assertTrue(schedule1.is_conflict_equivalent_with(schedule3))
+
+    def test_build_precedence_graph(self):
+        schedule = Schedule.parse("S_1 : R_1(A), W_2(A), W_1(B), R_2(B)")
+        graph = schedule.build_precedence_graph()
+        
+        expected_edges = { (1, 2) }
+        actual_edges = set((edge.source, edge.target) for edge in graph.edges.values())
+
+        self.assertEqual(actual_edges, expected_edges)
+
+        schedule = Schedule.parse("S_1 : R_1(A), W_2(B), W_1(B), R_2(B)")
+        graph = schedule.build_precedence_graph()
+
+        expected_edges = { (1, 2), (2, 1) }
+        actual_edges = set((edge.source, edge.target) for edge in graph.edges.values())
+
+        self.assertEqual(actual_edges, expected_edges)
+
+    def test_is_conflict_serializable(self):
+        # Non-serializable: cyclic dependency T1 -> T2 -> T1
+        schedule1 = Schedule.parse("S_1 : R_1(A), W_2(A), R_2(B), W_1(B)")
+        self.assertFalse(schedule1.is_conflict_serializable())
+        
+        # Serializable: acyclic dependency T1 -> T2
+        schedule2 = Schedule.parse("S_2 : R_1(A), W_1(A), R_2(A), W_2(B)")
+        self.assertTrue(schedule2.is_conflict_serializable())

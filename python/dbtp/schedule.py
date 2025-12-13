@@ -2,7 +2,7 @@ from typing import Iterable, Optional, Any, List, Protocol
 
 from .constants import Constants
 from .operation import OperationType, Operation
-from .directedgraph import DirectedGraph, Vertex, Edge
+from .directedgraph import DirectedGraph, Vertex, Edge, CyclicGraphError
 
 class Schedule():
     def __init__(
@@ -97,3 +97,40 @@ class Schedule():
             return False
         
         return True
+    
+    def build_precedence_graph(self) -> DirectedGraph:
+        """
+        Build a precedence graph for the given schedule.
+        Returns a DirectedGraph whose vertices are transaction IDs.
+        """
+        ops = self.operations
+        transactions = {}
+        
+        # Create vertices for each transaction
+        for op in ops:
+            if op.tx not in transactions:
+                transactions[op.tx] = Vertex(id=op.tx, label=op.tx)
+        
+        graph = DirectedGraph(vertices=list(transactions.values()))
+        
+        # Add edges based on operation order
+        for i in range(len(ops)):
+            for j in range(i + 1, len(ops)):
+                if ops[i].tx != ops[j].tx and ops[i].is_in_conflict_with(ops[j]):
+                    edge = Edge(source=ops[i].tx, target=ops[j].tx)
+                    if not graph.has_edge(edge):
+                        graph.add_edge(edge)
+        
+        return graph
+    
+    def is_conflict_serializable(self) -> bool:
+        """
+        Check if the schedule is conflict-serializable by verifying if its conflict graph is acyclic.
+        """
+        graph = self.build_precedence_graph()
+        
+        try:
+            graph.topological_sort()
+            return True
+        except CyclicGraphError:
+            return False

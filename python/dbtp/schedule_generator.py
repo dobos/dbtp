@@ -1,14 +1,147 @@
 import random
 from typing import Optional
 from .constants import Constants
-from .directedgraph import DirectedGraph
+from .directedgraph import DirectedGraph, CyclicGraphError, Vertex, Edge
 from .operation import Operation, OperationType
 from .schedule import Schedule
 
 
 class ScheduleGenerator:
     @classmethod
-    def from_precedence_graph(
+    def generate_random_precedence_graph(
+        cls,
+        transaction_count: int = 4,
+        edge_count: int = 4,
+        acyclic: bool = True,
+        max_attempts: int = None
+    ) -> DirectedGraph:
+
+        """
+        Generate a random precedence graph with the specified number of transactions.
+        Args:
+            transaction_count: Number of transactions (vertices) in the graph
+            edge_count: Number of edges to add to the graph
+            max_attempts: Maximum attempts to generate the desired graph structure
+        Returns:
+            A DirectedGraph representing the precedence graph
+        """
+
+        vertices = [ Vertex(id=i, label=i) for i in range(1, transaction_count + 1) ]
+        graph = DirectedGraph(vertices=vertices)
+
+        # Randomly add directed edges while ensuring acyclicity/cyclicity constraint
+        added_edges = 0
+        max_attempts = edge_count * 20 if max_attempts is None else max_attempts  # Prevent infinite loops
+        attempts = 0
+        
+        while added_edges < edge_count and attempts < max_attempts:
+            attempts += 1
+            src = random.randint(1, transaction_count)
+            dst = random.randint(1, transaction_count)
+            
+            if src == dst:
+                continue
+
+            edge = Edge(source=src, target=dst)
+            
+            # Check if edge already exists
+            if graph.has_edge(edge):
+                continue
+            
+            # Temporarily add edge and check for cycles
+            graph.add_edge(edge)
+            
+            if acyclic:
+                try:
+                    graph.topological_sort()
+                    # Graph is still acyclic, keep the edge
+                    added_edges += 1
+                except CyclicGraphError:
+                    # Graph became cyclic, remove the edge
+                    graph.remove_edge(edge)
+            else:
+                # We want any type of graph, keep the edge
+                added_edges += 1
+
+        if attempts == max_attempts:
+            raise RuntimeError(f"Failed to generate acyclic graph within max attempts")
+
+        return graph
+    
+    @classmethod
+    def generate_random_cyclic_precedence_graph(
+        cls,
+        transaction_count: int = 4,
+        edge_count: int = 4,
+        max_attempts: int = None
+    ) -> DirectedGraph:
+        
+        """
+        Generate a random cyclic precedence graph.
+        
+        Strategy: First create a cycle to guarantee the graph is cyclic,
+        then add remaining edges randomly.
+        
+        Args:
+            transaction_count: Number of transactions (vertices) in the graph
+            edge_count: Number of edges to add to the graph
+            max_attempts: Maximum attempts to add random edges after the cycle
+            
+        Returns:
+            A DirectedGraph that is guaranteed to be cyclic
+        """
+
+        if transaction_count < 2:
+            raise ValueError("Need at least 2 transactions to create a cyclic graph")
+        
+        if edge_count < 2:
+            raise ValueError("Need at least 2 edges to create a cycle")
+        
+        vertices = [Vertex(id=i, label=i) for i in range(1, transaction_count + 1)]
+        graph = DirectedGraph(vertices=vertices)
+        
+        # Step 1: Create a random cycle to guarantee cyclicity
+        # Choose a random subset of vertices for the cycle (at least 2)
+        cycle_length = min(random.randint(2, transaction_count), edge_count)
+        cycle_vertices = random.sample(range(1, transaction_count + 1), cycle_length)
+        
+        # Add edges to form a cycle
+        for i in range(cycle_length):
+            src = cycle_vertices[i]
+            dst = cycle_vertices[(i + 1) % cycle_length]
+            graph.add_edge(Edge(source=src, target=dst))
+        
+        added_edges = cycle_length
+        
+        # Step 2: Add remaining edges randomly
+        max_attempts = (edge_count - added_edges) * 20 if max_attempts is None else max_attempts
+        attempts = 0
+        
+        while added_edges < edge_count and attempts < max_attempts:
+            attempts += 1
+            src = random.randint(1, transaction_count)
+            dst = random.randint(1, transaction_count)
+            
+            if src == dst:
+                continue
+            
+            edge = Edge(source=src, target=dst)
+            
+            # Check if edge already exists
+            if graph.has_edge(edge):
+                continue
+            
+            # Add the edge (no need to check for cycles since we want cyclic graphs)
+            graph.add_edge(edge)
+            added_edges += 1
+            
+        if attempts == max_attempts and added_edges < edge_count:
+            raise RuntimeError(f"Failed to generate cyclic graph with {edge_count} edges within max attempts")
+        
+        return graph
+
+    @classmethod
+    def generate_from_precedence_graph(
         cls,
         graph: DirectedGraph,
         must_read_written: bool = False,

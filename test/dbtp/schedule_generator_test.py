@@ -2,6 +2,7 @@ import unittest
 
 from dbtp import (
     DirectedGraph,
+    CyclicGraphError,
     Vertex,
     Edge,
     OperationType,
@@ -11,6 +12,33 @@ from dbtp import (
 
 class ScheduleGeneratorTest(unittest.TestCase):
     
+    def test_generate_random_precedence_graph(self):
+        """Test generation of precedence graph from schedule"""
+        graph = ScheduleGenerator.generate_random_precedence_graph(acyclic=True)
+        
+        # Should have 4 vertices and 4 edges
+        self.assertEqual(len(graph.vertices), 4)
+        self.assertEqual(len(graph.edges), 4)
+        
+        # Check if it's not cyclic
+        try:
+            topo_order = graph.topological_sort()
+            pass
+        except CyclicGraphError as e:
+            self.fail(f"Generated graph is cyclic: {e}")
+
+    def test_generate_random_cyclic_precedence_graph(self):
+        """Test generation of precedence graph from schedule"""
+        graph = ScheduleGenerator.generate_random_cyclic_precedence_graph()
+        
+        # Should have 4 vertices and 4 edges
+        self.assertEqual(len(graph.vertices), 4)
+        self.assertEqual(len(graph.edges), 4)
+
+        # Check if it's cyclic
+        with self.assertRaises(CyclicGraphError):
+            topo_order = graph.topological_sort()
+
     def test_simple_two_transaction_chain(self):
         """Test T1 -> T2 precedence"""
         vertices = [
@@ -22,7 +50,7 @@ class ScheduleGeneratorTest(unittest.TestCase):
         ]
         
         graph = DirectedGraph(vertices=vertices, edges=edges)
-        schedule = ScheduleGenerator.from_precedence_graph(graph)
+        schedule = ScheduleGenerator.generate_from_precedence_graph(graph)
         
         # Should have 2 operations: W_1(A), R_2(A)
         self.assertEqual(len(schedule.operations), 2)
@@ -49,7 +77,7 @@ class ScheduleGeneratorTest(unittest.TestCase):
         ]
         
         graph = DirectedGraph(vertices=vertices, edges=edges)
-        schedule = ScheduleGenerator.from_precedence_graph(graph)
+        schedule = ScheduleGenerator.generate_from_precedence_graph(graph)
         
         # Should have 4 operations: W_1(A), R_2(A), W_2(B), R_3(B)
         self.assertEqual(len(schedule.operations), 4)
@@ -87,24 +115,24 @@ class ScheduleGeneratorTest(unittest.TestCase):
         
         graph = DirectedGraph(vertices=vertices, edges=edges)
 
-        schedule = ScheduleGenerator.from_precedence_graph(
+        schedule = ScheduleGenerator.generate_from_precedence_graph(
             graph
         )
         self.assertEqual(str(schedule), "S_1 : W_1(A), W_1(B), R_2(A), W_2(C), R_3(B), W_3(D), R_4(C), R_4(D)")
 
-        schedule = ScheduleGenerator.from_precedence_graph(
+        schedule = ScheduleGenerator.generate_from_precedence_graph(
             graph,
             must_read_written = True
         )
         self.assertEqual(str(schedule), "S_1 : R_1(A), W_1(A), R_1(B), W_1(B), R_2(A), R_2(C), W_2(C), R_3(B), R_3(D), W_3(D), R_4(C), R_4(D)")
 
-        schedule = ScheduleGenerator.from_precedence_graph(
+        schedule = ScheduleGenerator.generate_from_precedence_graph(
             graph,
             must_write_read = True
         )
         self.assertEqual(str(schedule), "S_1 : W_1(A), W_1(B), R_2(A), W_2(A), W_2(C), R_3(B), W_3(B), W_3(D), R_4(C), R_4(D), W_4(C), W_4(D)")
 
-        schedule = ScheduleGenerator.from_precedence_graph(
+        schedule = ScheduleGenerator.generate_from_precedence_graph(
             graph,
             must_read_written = True,
             must_write_read = True
@@ -115,25 +143,37 @@ class ScheduleGeneratorTest(unittest.TestCase):
         schedule = Schedule.parse("S_1 : W_1(A), W_1(B), R_2(A), W_2(C), R_3(B), W_3(D), R_4(C), R_4(D)")
         permutations = ScheduleGenerator.generate_conflict_equivalent_permutations(schedule)
         self.assertEqual(len(permutations), 2520)
+
+        for i in range(5):
+            self.assertTrue(schedule.is_conflict_equivalent_with(permutations[i]))
         
         schedule = Schedule.parse("S_1 : R_1(A), W_1(A), R_1(B), W_1(B), R_2(A), W_2(A), R_2(C), W_2(C), R_3(B), W_3(B), R_3(D), W_3(D), R_4(C), R_4(D), W_4(C), W_4(D)")
         permutations = ScheduleGenerator.generate_conflict_equivalent_permutations(schedule, max_permutations=100)
         self.assertEqual(len(permutations), 100)
 
+        for i in range(5):
+            self.assertTrue(schedule.is_conflict_equivalent_with(permutations[i]))
+
     def test_generate_random_conflict_equivalent_permutations(self):
         schedule = Schedule.parse("S_1 : W_1(A), W_1(B), R_2(A), W_2(C), R_3(B), W_3(D), R_4(C), R_4(D)")
-        random_permutations = ScheduleGenerator.generate_random_conflict_equivalent_permutations(
+        permutations = ScheduleGenerator.generate_random_conflict_equivalent_permutations(
             schedule,
             count = 10
         )
-        self.assertEqual(len(random_permutations), 10)
+        self.assertEqual(len(permutations), 10)
+
+        for i in range(10):
+            self.assertTrue(schedule.is_conflict_equivalent_with(permutations[i]))
         
         schedule = Schedule.parse("S_1 : R_1(A), W_1(A), R_1(B), W_1(B), R_2(A), W_2(A), R_2(C), W_2(C), R_3(B), W_3(B), R_3(D), W_3(D), R_4(C), R_4(D), W_4(C), W_4(D)")
-        random_permutations = ScheduleGenerator.generate_random_conflict_equivalent_permutations(
+        permutations = ScheduleGenerator.generate_random_conflict_equivalent_permutations(
             schedule,
             count = 20
         )
-        self.assertEqual(len(random_permutations), 20)
+        self.assertEqual(len(permutations), 20)
+
+        for i in range(20):
+            self.assertTrue(schedule.is_conflict_equivalent_with(permutations[i]))
 
 if __name__ == "__main__":
     unittest.main()
