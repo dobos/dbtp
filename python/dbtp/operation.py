@@ -31,11 +31,14 @@ class Operation:
             OperationType.READ,
             OperationType.WRITE,
             OperationType.LOCK,
-            OperationType.SLOCK,
-            OperationType.XLOCK,
             OperationType.UNLOCK
         }:
             return f"{self.op.name[0]}_{self.tx}({self.item})"
+        elif self.op in {
+            OperationType.SLOCK,
+            OperationType.XLOCK,
+        }:
+            return f"{self.op.name[:2]}_{self.tx}({self.item})"
         elif self.op == OperationType.COMMIT:
             return f"COMMIT_{self.tx}"
         elif self.op == OperationType.ROLLBACK:
@@ -48,11 +51,14 @@ class Operation:
             OperationType.READ,
             OperationType.WRITE,
             OperationType.LOCK,
-            OperationType.SLOCK,
-            OperationType.XLOCK,
             OperationType.UNLOCK
         }:
             return f"{self.op.name[0].lower()}_{{{self.tx}}}({self.item})"
+        elif self.op in {
+            OperationType.SLOCK,
+            OperationType.XLOCK,
+        }:
+            return f"{self.op.name[:2].lower()}_{{{self.tx}}}({self.item})"
         elif self.op == OperationType.COMMIT:
             return f"\\text{{COMMIT}}_{{{self.tx}}}"
         elif self.op == OperationType.ROLLBACK:
