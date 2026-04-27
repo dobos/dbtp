@@ -359,4 +359,4 @@ class Schedule():
         self,
         use_shared_locks: bool = False
     ) -> "Schedule":
-        pass
+        raise NotImplementedError("Two-phase locking is not implemented yet")
