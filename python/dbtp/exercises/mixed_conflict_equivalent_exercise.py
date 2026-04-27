@@ -2,7 +2,6 @@ import random
 
 from ..operation import Operation
 from ..schedule import Schedule
-from ..schedule_generator import ScheduleGenerator
 from .conflict_exercise import ConflictExercise
 
 
@@ -72,6 +71,7 @@ class MixedConflictEquivalentExercise(ConflictExercise):
 
             shuffled = random.sample(base_ops, len(base_ops))
             candidate = self._copy_schedule_with_operations(reference, shuffled)
+            candidate = self._random_conflict_equivalent_permutation(candidate)
             candidate_key = tuple(str(op) for op in candidate.operations)
 
             if candidate_key in seen:
@@ -94,24 +94,23 @@ class MixedConflictEquivalentExercise(ConflictExercise):
 
         self._setup_random()
 
-        reference = self._generate_reference_schedule()
+        reference = self._random_conflict_equivalent_permutation(
+            self._generate_reference_schedule()
+        )
         reference.id = 1
 
-        equivalent = ScheduleGenerator.generate_random_conflict_equivalent_permutations(
+        equivalent = self._generate_conflict_equivalent_schedules(
             reference,
-            count=self.num_equivalent,
-            max_attempts=max(self.num_equivalent * 300, 1000)
+            self.num_equivalent
         )
-
-        if len(equivalent) < self.num_equivalent:
-            raise RuntimeError(
-                "Could not generate enough conflict-equivalent schedules with the current settings"
-            )
 
         non_equivalent = self._generate_non_equivalent_schedules(
             reference,
             self.num_non_equivalent
         )
+
+        equivalent = [self._random_conflict_equivalent_permutation(s) for s in equivalent]
+        non_equivalent = [self._random_conflict_equivalent_permutation(s) for s in non_equivalent]
 
         for schedule in equivalent:
             if not reference.is_conflict_equivalent_with(schedule):
@@ -137,15 +136,12 @@ class MixedConflictEquivalentExercise(ConflictExercise):
         print("Reference schedule:")
         self._print_schedule(reference)
 
-        print("Generated schedules:")
-        for schedule in generated:
-            self._print_schedule(schedule)
+        self._print_schedules(generated)
 
         if self.print_conflict_graphs:
             print("Conflict graphs:")
             self._print_conflict_graph(reference)
-            for schedule in generated:
-                self._print_conflict_graph(schedule)
+            self._print_conflict_graphs(generated, heading=None)
 
         print("Solutions:")
         print(f"Equivalent to reference: {sorted(equivalent_ids)}")

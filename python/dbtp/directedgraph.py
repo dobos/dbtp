@@ -64,8 +64,12 @@ class DirectedGraph(Graph):
         
         # Add edges
         for (source, target), e in self.edges.items():
-            label_str = f"[{e.label}]" if e.label is not None else ""
-            latex_str += f"\\path ({source}) edge {label_str} ({target});\n"
+            if e.label is not None:
+                latex_str += (
+                    f"\\path ({source}) edge[->] node[midway, above] {{{e.label}}} ({target});\n"
+                )
+            else:
+                latex_str += f"\\path ({source}) edge[->] ({target});\n"
         
         latex_str += "\\end{tikzpicture}\n"
         return latex_str

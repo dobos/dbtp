@@ -1,7 +1,6 @@
 import random
 
 from .conflict_exercise import ConflictExercise
-from ..schedule_generator import ScheduleGenerator
 
 
 class ConflictEquivalentExercise(ConflictExercise):
@@ -37,27 +36,26 @@ class ConflictEquivalentExercise(ConflictExercise):
 
         self._setup_random()
 
-        schedule = self._generate_reference_schedule()
+        schedule = self._random_conflict_equivalent_permutation(
+            self._generate_reference_schedule()
+        )
         schedules = [schedule]
 
-        equivalents = ScheduleGenerator.generate_random_conflict_equivalent_permutations(
+        equivalents = self._generate_conflict_equivalent_schedules(
             schedule,
-            count=self.num_schedules - 1
+            self.num_schedules - 1
         )
         schedules.extend(equivalents)
+
+        # Permute each equivalent schedule once more for varied operation ordering.
+        schedules = [self._random_conflict_equivalent_permutation(s) for s in schedules]
 
         random.shuffle(schedules)
 
         for i in range(len(schedules)):
             schedules[i].id = i + 1
 
-        print("Generated schedules:")
-
-        for schedule in schedules:
-            self._print_schedule(schedule)
+        self._print_schedules(schedules)
 
         if self.print_conflict_graphs:
-            print("Conflict graphs:")
-
-            for schedule in schedules:
-                self._print_conflict_graph(schedule)
+            self._print_conflict_graphs(schedules)

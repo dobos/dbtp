@@ -1,3 +1,4 @@
 from .conflict_exercise import ConflictExercise
 from .conflict_equivalent_exercise import ConflictEquivalentExercise
 from .mixed_conflict_equivalent_exercise import MixedConflictEquivalentExercise
+from .serializable_exercise import SerializableExercise

@@ -1,6 +1,10 @@
 import argparse
 
-from .exercises import ConflictEquivalentExercise, MixedConflictEquivalentExercise
+from .exercises import (
+    ConflictEquivalentExercise,
+    MixedConflictEquivalentExercise,
+    SerializableExercise,
+)
 
 class Script():
 
@@ -11,6 +15,7 @@ class Script():
         # Add subparser for the conflict-equivalency exercise
         ConflictEquivalentExercise.create_parser(subparsers)
         MixedConflictEquivalentExercise.create_parser(subparsers)
+        SerializableExercise.create_parser(subparsers)
 
         return parser
 
@@ -27,6 +32,13 @@ class Script():
 
         if args.command == "conf-eq-mix":
             exercise = MixedConflictEquivalentExercise()
+            exercise.parse_args(args)
+
+            exercise.print_banner()
+            exercise.generate()
+
+        if args.command == "serializable":
+            exercise = SerializableExercise()
             exercise.parse_args(args)
 
             exercise.print_banner()
