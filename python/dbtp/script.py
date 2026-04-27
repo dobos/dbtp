@@ -1,6 +1,6 @@
 import argparse
 
-from .exercises import ConflictEquivalentExercise
+from .exercises import ConflictEquivalentExercise, MixedConflictEquivalentExercise
 
 class Script():
 
@@ -10,6 +10,7 @@ class Script():
         
         # Add subparser for the conflict-equivalency exercise
         ConflictEquivalentExercise.create_parser(subparsers)
+        MixedConflictEquivalentExercise.create_parser(subparsers)
 
         return parser
 
@@ -22,6 +23,13 @@ class Script():
             exercise.parse_args(args)
 
             exercise.print_banner()            
+            exercise.generate()
+
+        if args.command == "conf-eq-mix":
+            exercise = MixedConflictEquivalentExercise()
+            exercise.parse_args(args)
+
+            exercise.print_banner()
             exercise.generate()
 
 if __name__ == "__main__":

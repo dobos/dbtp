@@ -1,28 +1,22 @@
 import random
 
+from ..schedule import Schedule
 from ..schedule_generator import ScheduleGenerator
 
-class ConflictEquivalentExercise:
+
+class ConflictExercise:
     def __init__(self):
-        self.num_schedules = 4
         self.num_transactions = 4
         self.num_operations = 4
+        self.seed = None
         self.must_read = True
         self.must_write = False
         self.serializable = False
         self.latex = False
+        self.print_conflict_graphs = False
 
     @staticmethod
-    def create_parser(subparsers):
-        parser = subparsers.add_parser(
-            "conf-eq",
-            help="Generate conflict-equivalency exercise"
-        )
-        parser.add_argument(
-            "--num-schedules",
-            type=int,
-            help="Number of schedules to generate"
-        )
+    def _add_common_arguments(parser):
         parser.add_argument(
             "--num-transactions",
             type=int,
@@ -32,6 +26,11 @@ class ConflictEquivalentExercise:
             "--num-operations",
             type=int,
             help="Number of conflicting operations"
+        )
+        parser.add_argument(
+            "--seed",
+            type=int,
+            help="Random seed for reproducible generation"
         )
         parser.add_argument(
             "--must-read",
@@ -75,14 +74,20 @@ class ConflictEquivalentExercise:
             dest="latex",
             help="Output schedules in LaTeX format"
         )
+        parser.add_argument(
+            "--graph",
+            action="store_true",
+            dest="print_conflict_graphs",
+            help="Print conflict graphs for generated schedules"
+        )
 
     def parse_args(self, args):
-        if args.num_schedules is not None:
-            self.num_schedules = args.num_schedules
         if args.num_transactions is not None:
             self.num_transactions = args.num_transactions
         if args.num_operations is not None:
             self.num_operations = args.num_operations
+        if hasattr(args, "seed") and args.seed is not None:
+            self.seed = args.seed
         if hasattr(args, "must_read") and args.must_read is not None:
             self.must_read = args.must_read
         if hasattr(args, "must_write") and args.must_write is not None:
@@ -91,63 +96,44 @@ class ConflictEquivalentExercise:
             self.serializable = args.serializable
         if hasattr(args, "latex") and args.latex is not None:
             self.latex = args.latex
+        if hasattr(args, "print_conflict_graphs") and args.print_conflict_graphs is not None:
+            self.print_conflict_graphs = args.print_conflict_graphs
 
     def print_banner(self):
-        print("Generating conflict-equivalency exercise with the following parameters:")
-        print(f"Number of schedules: {self.num_schedules}")
         print(f"Number of transactions: {self.num_transactions}")
         print(f"Number of conflicting operations: {self.num_operations}")
+        print(f"Random seed: {self.seed}")
         print(f"Must read before write: {self.must_read}")
         print(f"Must write after read: {self.must_write}")
+        print(f"Print conflict graphs: {self.print_conflict_graphs}")
 
-    def generate(self):
-        print("Generating schedules...")
+    def _setup_random(self):
+        if self.seed is not None:
+            random.seed(self.seed)
 
-        schedules = []
-        
-        # Generate a random precedence graph
+    def _generate_reference_schedule(self) -> Schedule:
         graph = ScheduleGenerator.generate_random_precedence_graph(
-            transaction_count = self.num_transactions,
-            edge_count = self.num_operations,
-            acyclic = self.serializable,
-            cyclic = not self.serializable
+            transaction_count=self.num_transactions,
+            edge_count=self.num_operations,
+            acyclic=self.serializable,
+            cyclic=not self.serializable
         )
-
-        # Generate a schedule from the graph
-        schedule = ScheduleGenerator.generate_schedule_from_cyclic_precedence_graph(
+        return ScheduleGenerator.generate_schedule_from_cyclic_precedence_graph(
             graph,
             must_read_written=self.must_read,
             must_write_read=self.must_write
         )
-        schedules.append(schedule)
 
-        equivalents = ScheduleGenerator.generate_random_conflict_equivalent_permutations(
-            schedule,
-            count=self.num_schedules - 1
-        )
-        schedules.extend(equivalents)
+    def _print_schedule(self, schedule: Schedule):
+        if self.latex:
+            print(schedule.latex())
+        else:
+            print(str(schedule))
 
-        # Randomize the list of schedules
-        random.shuffle(schedules)
-
-        # Add numbers
-        for i in range(len(schedules)):
-            schedules[i].id = i + 1
-
-        print("Generated schedules:")
-
-        for schedule in schedules:
-            if self.latex:
-                print(schedule.latex())
-            else:
-                print(str(schedule))
-
-        print("Conflict graphs:")
-
-        for schedule in schedules:
-            graph = schedule.build_precedence_graph()
-            print(f"Conflict graph for Schedule S_{schedule.id}:")
-            if self.latex:
-                print(graph.latex())
-            else:
-                print(str(graph))
+    def _print_conflict_graph(self, schedule: Schedule):
+        graph = schedule.build_precedence_graph()
+        print(f"Conflict graph for Schedule S_{schedule.id}:")
+        if self.latex:
+            print(graph.latex())
+        else:
+            print(str(graph))
