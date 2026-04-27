@@ -1,4 +1,5 @@
 import unittest
+import random
 
 from dbtp import (
     DirectedGraph,
@@ -44,6 +45,41 @@ class ScheduleGeneratorTest(unittest.TestCase):
         # Check if it's cyclic
         with self.assertRaises(CyclicGraphError):
             topo_order = graph.topological_sort()
+
+    def test_generate_random_wait_for_graph_acyclic(self):
+        """Acyclic wait-for graph should guarantee no deadlock cycle."""
+        graph = ScheduleGenerator.generate_random_wait_for_graph(
+            acyclic=True,
+            cyclic=False,
+        )
+
+        self.assertEqual(len(graph.vertices), 4)
+        self.assertEqual(len(graph.edges), 4)
+
+        try:
+            graph.topological_sort()
+        except CyclicGraphError as e:
+            self.fail(f"Generated wait-for graph is cyclic: {e}")
+
+    def test_generate_random_wait_for_graph_cyclic(self):
+        """Cyclic wait-for graph should guarantee deadlock cycle."""
+        graph = ScheduleGenerator.generate_random_wait_for_graph(
+            acyclic=False,
+            cyclic=True,
+        )
+
+        self.assertEqual(len(graph.vertices), 4)
+        self.assertEqual(len(graph.edges), 4)
+
+        with self.assertRaises(CyclicGraphError):
+            graph.topological_sort()
+
+    def test_generate_random_wait_for_graph_conflicting_options(self):
+        with self.assertRaises(ValueError):
+            ScheduleGenerator.generate_random_wait_for_graph(
+                acyclic=True,
+                cyclic=True,
+            )
 
     def test_simple_two_transaction_chain(self):
         """Test T1 -> T2 precedence"""
@@ -189,6 +225,75 @@ class ScheduleGeneratorTest(unittest.TestCase):
         )
 
         self.assertEqual(str(schedule), "S_1 : R_1(A), W_1(A), R_2(A), W_2(A), R_1(B), W_1(B), R_3(B), W_3(B), R_2(C), W_2(C), R_4(C), W_4(C), R_4(D), W_4(D), R_1(D), W_1(D)")
+
+    def test_generate_schedule_from_wait_for_graph_preserves_edges(self):
+        vertices = [
+            Vertex(id=1, label=1),
+            Vertex(id=2, label=2),
+            Vertex(id=3, label=3),
+            Vertex(id=4, label=4),
+        ]
+        edges = [
+            Edge(source=1, target=2),
+            Edge(source=1, target=3),
+            Edge(source=4, target=2),
+            Edge(source=3, target=4),
+        ]
+        graph = DirectedGraph(vertices=vertices, edges=edges)
+
+        schedule = ScheduleGenerator.generate_schedule_from_wait_for_graph(graph)
+
+        generated_wait_for = schedule.build_wait_for_graph()
+
+        expected_edges = set((e.source, e.target) for e in edges)
+        actual_edges = set((e.source, e.target) for e in generated_wait_for.edges.values())
+
+        self.assertEqual(actual_edges, expected_edges)
+        self.assertTrue(schedule.is_two_phase_locked())
+        self.assertTrue(schedule.is_legal())
+
+    def test_generate_schedule_from_wait_for_graph_cyclic_deadlock(self):
+        vertices = [
+            Vertex(id=1, label=1),
+            Vertex(id=2, label=2),
+            Vertex(id=3, label=3),
+        ]
+        edges = [
+            Edge(source=1, target=2),
+            Edge(source=2, target=3),
+            Edge(source=3, target=1),
+        ]
+        graph = DirectedGraph(vertices=vertices, edges=edges)
+
+        schedule = ScheduleGenerator.generate_schedule_from_wait_for_graph(graph)
+
+        self.assertTrue(schedule.has_deadlock())
+        self.assertTrue(schedule.is_two_phase_locked())
+        self.assertTrue(schedule.is_legal())
+
+    def test_generate_schedule_from_wait_for_graph_is_randomized(self):
+        vertices = [
+            Vertex(id=1, label=1),
+            Vertex(id=2, label=2),
+            Vertex(id=3, label=3),
+            Vertex(id=4, label=4),
+        ]
+        edges = [
+            Edge(source=1, target=2),
+            Edge(source=2, target=3),
+            Edge(source=3, target=4),
+            Edge(source=4, target=1),
+        ]
+        graph = DirectedGraph(vertices=vertices, edges=edges)
+
+        variants = set()
+        for seed in range(10):
+            random.seed(seed)
+            schedule = ScheduleGenerator.generate_schedule_from_wait_for_graph(graph)
+            variants.add(str(schedule))
+
+        # We expect multiple valid variants due to randomized event ordering/lock choices.
+        self.assertGreater(len(variants), 1)
 
     def test_generate_conflict_equivalent_permutations(self):
         schedule = Schedule.parse("S_1 : W_1(A), W_1(B), R_2(A), W_2(C), R_3(B), W_3(D), R_4(C), R_4(D)")

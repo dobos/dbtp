@@ -89,6 +89,84 @@ class ScheduleGenerator:
         return graph
 
     @classmethod
+    def generate_random_wait_for_graph(
+        cls,
+        transaction_count: int = 4,
+        edge_count: int = 4,
+        acyclic: bool = True,
+        cyclic: bool = False,
+        max_attempts: int = None
+    ) -> DirectedGraph:
+
+        """
+        Generate a random wait-for graph with the specified number of transactions.
+
+        A cycle in a wait-for graph indicates deadlock. Use acyclic=True to guarantee
+        no deadlock and cyclic=True to guarantee at least one deadlock cycle.
+
+        Args:
+            transaction_count: Number of transactions (vertices) in the graph
+            edge_count: Number of edges to add to the graph
+            acyclic: If True, keep the graph acyclic
+            cyclic: If True, force the graph to contain at least one cycle
+            max_attempts: Maximum attempts to generate the desired graph structure
+        Returns:
+            A DirectedGraph representing the wait-for graph
+        """
+
+        if cyclic and acyclic:
+            raise ValueError("Graph cannot be both cyclic and acyclic")
+
+        vertices = [Vertex(id=i, label=i) for i in range(1, transaction_count + 1)]
+        graph = DirectedGraph(vertices=vertices)
+
+        added_edges = 0
+
+        if cyclic:
+            # Create a random cycle to guarantee deadlock
+            cycle_length = min(random.randint(2, transaction_count), edge_count)
+            cycle_vertices = random.sample(range(1, transaction_count + 1), cycle_length)
+
+            for i in range(cycle_length):
+                src = cycle_vertices[i]
+                dst = cycle_vertices[(i + 1) % cycle_length]
+                graph.add_edge(Edge(source=src, target=dst))
+
+            added_edges = cycle_length
+
+        max_attempts = edge_count * 20 if max_attempts is None else max_attempts
+        attempts = 0
+
+        while added_edges < edge_count and attempts < max_attempts:
+            attempts += 1
+            src = random.randint(1, transaction_count)
+            dst = random.randint(1, transaction_count)
+
+            if src == dst:
+                continue
+
+            edge = Edge(source=src, target=dst)
+
+            if graph.has_edge(edge):
+                continue
+
+            graph.add_edge(edge)
+
+            if acyclic:
+                try:
+                    graph.topological_sort()
+                    added_edges += 1
+                except CyclicGraphError:
+                    graph.remove_edge(edge)
+            else:
+                added_edges += 1
+
+        if attempts == max_attempts:
+            raise RuntimeError("Failed to generate requested wait-for graph within max attempts")
+
+        return graph
+
+    @classmethod
     def generate_schedule_from_acyclic_precedence_graph(
         cls,
         graph: DirectedGraph,
@@ -250,6 +328,118 @@ class ScheduleGenerator:
                 operations.append(Operation(tx=target, op=OperationType.WRITE, item=item_name))
                 writes_by_tx[target].add(item_name)
         
+        return Schedule(id=1, operations=operations)
+
+    @classmethod
+    def generate_schedule_from_wait_for_graph(
+        cls,
+        graph: DirectedGraph,
+        include_commits: bool = True
+    ) -> Schedule:
+        """
+        Generate a randomized schedule with SLOCK/XLOCK and strict 2PL that realizes
+        the given wait-for graph during execution.
+
+        For each wait-for edge (i -> j), transaction j first locks an item, then
+        transaction i requests an XLOCK on the same item. This introduces the wait edge.
+
+        Strict 2PL is enforced by releasing all locks only at transaction end.
+
+        Args:
+            graph: Wait-for graph where vertices are transaction IDs and edges i -> j
+                   mean transaction i waits for transaction j.
+            include_commits: Whether to append COMMIT operations before unlocks.
+
+        Returns:
+            A randomized schedule that is legal and strict-2PL.
+        """
+        operations = []
+
+        # Build per-edge items and randomized holder lock choice.
+        edge_defs = []
+        item_counter = 0
+        for (source, target), edge in graph.edges.items():
+            if edge.label is None:
+                if item_counter < len(Constants.LETTERS):
+                    item_name = f"{Constants.LETTERS[item_counter]}"
+                else:
+                    item_name = f"X{item_counter}"
+            else:
+                item_name = edge.label
+
+            # Holder lock can be shared or exclusive; requester uses XLOCK to wait.
+            holder_lock = random.choice([OperationType.SLOCK, OperationType.XLOCK])
+            edge_defs.append((source, target, item_name, holder_lock))
+            item_counter += 1
+
+        # Randomize edge order to keep generated schedules diverse.
+        random.shuffle(edge_defs)
+
+        # For each edge e, create two events:
+        # A_e: holder acquires lock on item
+        # B_e: waiter requests XLOCK on same item (produces wait edge waiter -> holder)
+        # Constraint: A_e must happen before B_e.
+        event_payload = {}
+        successors = {}
+        indegree = {}
+
+        for idx, (source, target, item_name, holder_lock) in enumerate(edge_defs):
+            a_id = f"A{idx}"
+            b_id = f"B{idx}"
+
+            event_payload[a_id] = (target, holder_lock, item_name)
+            event_payload[b_id] = (source, OperationType.XLOCK, item_name)
+
+            successors[a_id] = [b_id]
+            successors[b_id] = []
+            indegree[a_id] = 0
+            indegree[b_id] = 1
+
+        # Randomized topological order of events respecting A_e -> B_e constraints.
+        event_order = []
+        available = [eid for eid, deg in indegree.items() if deg == 0]
+        while available:
+            chosen = random.choice(available)
+            available.remove(chosen)
+            event_order.append(chosen)
+
+            for nxt in successors[chosen]:
+                indegree[nxt] -= 1
+                if indegree[nxt] == 0:
+                    available.append(nxt)
+
+        # Keep per-transaction lock ownership to emit strict-2PL unlocks at the end.
+        locked_items_by_tx = {tx: [] for tx in graph.vertices}
+        seen_items_by_tx = {tx: set() for tx in graph.vertices}
+
+        for event_id in event_order:
+            tx, lock_op, item = event_payload[event_id]
+
+            # Each (tx, item) pair appears once by construction, but guard anyway.
+            if item not in seen_items_by_tx[tx]:
+                operations.append(Operation(tx=tx, op=lock_op, item=item))
+                seen_items_by_tx[tx].add(item)
+                locked_items_by_tx[tx].append(item)
+
+            # Add an access operation compatible with the lock to keep schedule meaningful.
+            if lock_op == OperationType.SLOCK:
+                operations.append(Operation(tx=tx, op=OperationType.READ, item=item))
+            else:
+                operations.append(Operation(tx=tx, op=OperationType.WRITE, item=item))
+
+        # Strict 2PL tail: optional COMMIT, then release all held locks.
+        tx_order = list(graph.vertices.keys())
+        random.shuffle(tx_order)
+
+        for tx in tx_order:
+            if include_commits:
+                operations.append(Operation(tx=tx, op=OperationType.COMMIT))
+
+            unlock_items = locked_items_by_tx.get(tx, []).copy()
+            random.shuffle(unlock_items)
+            for item in unlock_items:
+                operations.append(Operation(tx=tx, op=OperationType.UNLOCK, item=item))
+
         return Schedule(id=1, operations=operations)
 
     @classmethod
