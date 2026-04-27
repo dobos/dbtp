@@ -333,8 +333,7 @@ class ScheduleGenerator:
     @classmethod
     def generate_schedule_from_wait_for_graph(
         cls,
-        graph: DirectedGraph,
-        include_commits: bool = True
+        graph: DirectedGraph
     ) -> Schedule:
         """
         Generate a randomized schedule with SLOCK/XLOCK and strict 2PL that realizes
@@ -348,7 +347,6 @@ class ScheduleGenerator:
         Args:
             graph: Wait-for graph where vertices are transaction IDs and edges i -> j
                    mean transaction i waits for transaction j.
-            include_commits: Whether to append COMMIT operations before unlocks.
 
         Returns:
             A randomized schedule that is legal and strict-2PL.
@@ -411,6 +409,7 @@ class ScheduleGenerator:
         # Keep per-transaction lock ownership to emit strict-2PL unlocks at the end.
         locked_items_by_tx = {tx: [] for tx in graph.vertices}
         seen_items_by_tx = {tx: set() for tx in graph.vertices}
+        used_items = {item_name for _, _, item_name, _ in edge_defs}
 
         for event_id in event_order:
             tx, lock_op, item = event_payload[event_id]
@@ -427,14 +426,25 @@ class ScheduleGenerator:
             else:
                 operations.append(Operation(tx=tx, op=OperationType.WRITE, item=item))
 
-        # Strict 2PL tail: optional COMMIT, then release all held locks.
+        # Ensure all transactions perform at least one lock/access operation.
+        idle_txs = [tx for tx in graph.vertices if not seen_items_by_tx[tx]]
+        random.shuffle(idle_txs)
+        for tx in idle_txs:
+            solo_item = f"TX{tx}_SOLO"
+            while solo_item in used_items:
+                solo_item = f"{solo_item}_X"
+            used_items.add(solo_item)
+
+            operations.append(Operation(tx=tx, op=OperationType.XLOCK, item=solo_item))
+            operations.append(Operation(tx=tx, op=OperationType.WRITE, item=solo_item))
+            seen_items_by_tx[tx].add(solo_item)
+            locked_items_by_tx[tx].append(solo_item)
+
+        # Strict 2PL tail: release all held locks at transaction end.
         tx_order = list(graph.vertices.keys())
         random.shuffle(tx_order)
 
         for tx in tx_order:
-            if include_commits:
-                operations.append(Operation(tx=tx, op=OperationType.COMMIT))
-
             unlock_items = locked_items_by_tx.get(tx, []).copy()
             random.shuffle(unlock_items)
             for item in unlock_items:

@@ -2,6 +2,7 @@ import argparse
 
 from .exercises import (
     ConflictEquivalentExercise,
+    DeadlockExercise,
     MixedConflictEquivalentExercise,
     SerializableExercise,
 )
@@ -16,6 +17,7 @@ class Script():
         ConflictEquivalentExercise.create_parser(subparsers)
         MixedConflictEquivalentExercise.create_parser(subparsers)
         SerializableExercise.create_parser(subparsers)
+        DeadlockExercise.create_parser(subparsers)
 
         return parser
 
@@ -39,6 +41,13 @@ class Script():
 
         if args.command == "serializable":
             exercise = SerializableExercise()
+            exercise.parse_args(args)
+
+            exercise.print_banner()
+            exercise.generate()
+
+        if args.command == "deadlock":
+            exercise = DeadlockExercise()
             exercise.parse_args(args)
 
             exercise.print_banner()

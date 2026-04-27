@@ -251,6 +251,37 @@ class ScheduleGeneratorTest(unittest.TestCase):
         self.assertEqual(actual_edges, expected_edges)
         self.assertTrue(schedule.is_two_phase_locked())
         self.assertTrue(schedule.is_legal())
+        self.assertFalse(any(op.op == OperationType.COMMIT for op in schedule.operations))
+
+    def test_generate_schedule_from_wait_for_graph_all_transactions_do_something(self):
+        vertices = [
+            Vertex(id=1, label=1),
+            Vertex(id=2, label=2),
+            Vertex(id=3, label=3),
+            Vertex(id=4, label=4),
+        ]
+        # Tx 4 is intentionally isolated in the wait-for graph.
+        edges = [
+            Edge(source=1, target=2),
+            Edge(source=2, target=3),
+        ]
+        graph = DirectedGraph(vertices=vertices, edges=edges)
+
+        schedule = ScheduleGenerator.generate_schedule_from_wait_for_graph(graph)
+
+        active_txs = {
+            op.tx
+            for op in schedule.operations
+            if op.op in {
+                OperationType.SLOCK,
+                OperationType.XLOCK,
+                OperationType.READ,
+                OperationType.WRITE,
+            }
+        }
+
+        self.assertEqual(active_txs, {1, 2, 3, 4})
+        self.assertFalse(any(op.op == OperationType.COMMIT for op in schedule.operations))
 
     def test_generate_schedule_from_wait_for_graph_cyclic_deadlock(self):
         vertices = [
