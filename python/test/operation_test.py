@@ -8,8 +8,8 @@ class OperationTest(unittest.TestCase):
             (OperationType.READ, "x", 1, "R_1(x)"),
             (OperationType.WRITE, "y", 2, "W_2(y)"),
             (OperationType.LOCK, "z", 3, "L_3(z)"),
-            (OperationType.SLOCK, "s", 4, "S_4(s)"),
-            (OperationType.XLOCK, "t", 5, "X_5(t)"),
+            (OperationType.SLOCK, "s", 4, "SL_4(s)"),
+            (OperationType.XLOCK, "t", 5, "XL_5(t)"),
             (OperationType.UNLOCK, "t", 6, "U_6(t)"),
         ]
         for op_type, item, tx, expected in cases:
@@ -31,8 +31,8 @@ class OperationTest(unittest.TestCase):
             (OperationType.READ, "x", 1, "r_{1}(x)"),
             (OperationType.WRITE, "y", 2, "w_{2}(y)"),
             (OperationType.LOCK, "z", 3, "l_{3}(z)"),
-            (OperationType.SLOCK, "s", 4, "s_{4}(s)"),
-            (OperationType.XLOCK, "t", 5, "x_{5}(t)"),
+            (OperationType.SLOCK, "s", 4, "sl_{4}(s)"),
+            (OperationType.XLOCK, "t", 5, "xl_{5}(t)"),
             (OperationType.UNLOCK, "u", 6, "u_{6}(u)"),
             (OperationType.COMMIT, None, 10, "\\text{COMMIT}_{10}"),
             (OperationType.ROLLBACK, None, 11, "\\text{ROLLBACK}_{11}"),
