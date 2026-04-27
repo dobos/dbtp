@@ -357,6 +357,170 @@ class Schedule():
     
     def add_locks_two_phase(
         self,
-        use_shared_locks: bool = False
+        use_shared_locks: bool = False,
+        strict: bool = False
     ) -> "Schedule":
-        raise NotImplementedError("Two-phase locking is not implemented yet")
+        """
+        Add lock and unlock operations to the given schedule following two-phase locking.
+        
+        Locks are acquired during the growing phase (when READ/WRITE operations occur).
+        In relaxed mode (strict=False, default), locks are released immediately after the 
+        last use of each item by each transaction.
+        In strict mode (strict=True), all locks are held until the end of the transaction.
+        
+        Args:
+            use_shared_locks: Whether to use SLOCK/XLOCK or just LOCK
+            strict: If True, release all locks at transaction end (strict 2PL);
+                   if False, release locks as soon as item is no longer needed (relaxed 2PL)
+        Returns:
+            A new Schedule with LOCK and UNLOCK operations added following two-phase locking
+        """
+        
+        if strict:
+            return self._add_locks_two_phase_strict(use_shared_locks)
+        else:
+            return self._add_locks_two_phase_relaxed(use_shared_locks)
+    
+    def _add_locks_two_phase_relaxed(self, use_shared_locks: bool = False) -> "Schedule":
+        """Relaxed two-phase locking: release locks after each item's last use."""
+        
+        # Precompute the last operation index for each (transaction, item) pair
+        last_use = {}
+        # Precompute the last READ/WRITE operation index for each transaction
+        last_tx_op = {}
+        
+        for i, op in enumerate(self.operations):
+            if op.op in {OperationType.READ, OperationType.WRITE}:
+                last_use[(op.tx, op.item)] = i
+                last_tx_op[op.tx] = i
+        
+        # Track pending unlocks for each transaction (items to unlock before next operation)
+        pending_unlocks = {tx: set() for tx in set(op.tx for op in self.operations)}
+        
+        # Track which items each transaction has locked and the lock type
+        locked_items = {tx: {} for tx in set(op.tx for op in self.operations)}
+        new_operations = []
+        
+        for i, op in enumerate(self.operations):
+            if op.op in {OperationType.READ, OperationType.WRITE}:
+                # Determine required lock type
+                if use_shared_locks:
+                    required_lock = OperationType.SLOCK if op.op == OperationType.READ else OperationType.XLOCK
+                else:
+                    required_lock = OperationType.LOCK
+                
+                # Check current lock status and add lock operations
+                current_lock = locked_items[op.tx].get(op.item)
+                
+                if current_lock is None:
+                    # No lock held, acquire the required lock
+                    new_operations.append(Operation(tx=op.tx, op=required_lock, item=op.item))
+                    locked_items[op.tx][op.item] = required_lock
+                        
+                elif use_shared_locks and current_lock == OperationType.SLOCK and required_lock == OperationType.XLOCK:
+                    # Upgrade from SLOCK to XLOCK
+                    new_operations.append(Operation(tx=op.tx, op=OperationType.XLOCK, item=op.item))
+                    locked_items[op.tx][op.item] = OperationType.XLOCK
+                
+                # Add any pending unlocks (items marked for unlocking from previous operation of same transaction)
+                for item in pending_unlocks[op.tx]:
+                    new_operations.append(Operation(tx=op.tx, op=OperationType.UNLOCK, item=item))
+                    locked_items[op.tx].pop(item, None)
+                pending_unlocks[op.tx].clear()
+                
+                # Add the original operation
+                new_operations.append(op)
+                
+                # If this is the last use of this item, unlock it
+                if last_use.get((op.tx, op.item)) == i:
+                    # If this is the last operation for this transaction, emit unlock immediately
+                    # Otherwise, defer to next operation
+                    if i == last_tx_op.get(op.tx):
+                        # Last operation for this transaction, emit immediately
+                        new_operations.append(Operation(tx=op.tx, op=OperationType.UNLOCK, item=op.item))
+                        locked_items[op.tx].pop(op.item, None)
+                    else:
+                        # Not last operation, defer to next operation
+                        pending_unlocks[op.tx].add(op.item)
+            else:
+                # Non-read/write operations are added as-is
+                new_operations.append(op)
+                
+                # If transaction ends (COMMIT/ABORT), release any remaining locks
+                if op.op in {OperationType.COMMIT, OperationType.ABORT}:
+                    # First add any pending unlocks
+                    for item in pending_unlocks[op.tx]:
+                        new_operations.append(Operation(tx=op.tx, op=OperationType.UNLOCK, item=item))
+                    pending_unlocks[op.tx].clear()
+                    # Then add remaining locks
+                    for item in list(locked_items[op.tx].keys()):
+                        new_operations.append(Operation(tx=op.tx, op=OperationType.UNLOCK, item=item))
+                    locked_items[op.tx].clear()
+        
+        # Release any remaining locks at the end of the schedule
+        for tx in locked_items:
+            for item in list(locked_items[tx].keys()):
+                new_operations.append(Operation(tx=tx, op=OperationType.UNLOCK, item=item))
+        
+        return Schedule(id=self.id, operations=new_operations)
+    
+    def _add_locks_two_phase_strict(self, use_shared_locks: bool = False) -> "Schedule":
+        """Strict two-phase locking: release all locks at transaction end."""
+        
+        # Precompute the last READ/WRITE operation index for each transaction
+        last_tx_op = {}
+        
+        for i, op in enumerate(self.operations):
+            if op.op in {OperationType.READ, OperationType.WRITE}:
+                last_tx_op[op.tx] = i
+        
+        # Track which items each transaction has locked and the lock type
+        locked_items = {tx: {} for tx in set(op.tx for op in self.operations)}
+        new_operations = []
+        
+        for i, op in enumerate(self.operations):
+            if op.op in {OperationType.READ, OperationType.WRITE}:
+                # Determine required lock type
+                if use_shared_locks:
+                    required_lock = OperationType.SLOCK if op.op == OperationType.READ else OperationType.XLOCK
+                else:
+                    required_lock = OperationType.LOCK
+                
+                # Check current lock status and add lock operations
+                current_lock = locked_items[op.tx].get(op.item)
+                
+                if current_lock is None:
+                    # No lock held, acquire the required lock
+                    new_operations.append(Operation(tx=op.tx, op=required_lock, item=op.item))
+                    locked_items[op.tx][op.item] = required_lock
+                        
+                elif use_shared_locks and current_lock == OperationType.SLOCK and required_lock == OperationType.XLOCK:
+                    # Upgrade from SLOCK to XLOCK
+                    new_operations.append(Operation(tx=op.tx, op=OperationType.XLOCK, item=op.item))
+                    locked_items[op.tx][op.item] = OperationType.XLOCK
+                
+                # Add the original operation
+                new_operations.append(op)
+                
+                # Release all locks only at the end of the transaction
+                if i == last_tx_op.get(op.tx):
+                    # Last operation for this transaction, release all locks
+                    for item in list(locked_items[op.tx].keys()):
+                        new_operations.append(Operation(tx=op.tx, op=OperationType.UNLOCK, item=item))
+                    locked_items[op.tx].clear()
+            else:
+                # Non-read/write operations are added as-is
+                new_operations.append(op)
+                
+                # If transaction ends (COMMIT/ABORT), release any remaining locks
+                if op.op in {OperationType.COMMIT, OperationType.ABORT}:
+                    for item in list(locked_items[op.tx].keys()):
+                        new_operations.append(Operation(tx=op.tx, op=OperationType.UNLOCK, item=item))
+                    locked_items[op.tx].clear()
+        
+        # Release any remaining locks at the end of the schedule
+        for tx in locked_items:
+            for item in list(locked_items[tx].keys()):
+                new_operations.append(Operation(tx=tx, op=OperationType.UNLOCK, item=item))
+        
+        return Schedule(id=self.id, operations=new_operations)

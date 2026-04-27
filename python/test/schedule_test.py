@@ -217,6 +217,7 @@ class TestSchedule(unittest.TestCase):
         expected = "S_1 : SL_1(A), R_1(A), XL_1(B), W_1(B), U_1(B), XL_1(A), W_1(A), U_1(A)"
         self.assertEqual(str(locked), expected)
 
+
     def test_add_locks_to_schedule_two_phase(self):
         schedule = Schedule.parse("S_1 : R_1(A), W_1(B), W_1(A)")
 
@@ -231,4 +232,22 @@ class TestSchedule(unittest.TestCase):
         schedule = Schedule.parse("S_1 : R_1(A), W_1(B), R_2(B), W_1(A), W_2(B)")
         locked = schedule.add_locks_two_phase(use_shared_locks=True)
         expected = "S_1 : SL_1(A), R_1(A), XL_1(B), W_1(B), SL_2(B), R_2(B), XL_1(A), U_1(B), W_1(A), U_1(A), XL_2(B), W_2(B), U_2(B)"
+        self.assertEqual(str(locked), expected)
+
+    def test_add_locks_to_schedule_two_phase_strict(self):
+        # Strict mode: all locks released at transaction end
+        schedule = Schedule.parse("S_1 : R_1(A), W_1(B), W_1(A)")
+
+        locked = schedule.add_locks_two_phase(strict=True)
+        expected = "S_1 : L_1(A), R_1(A), L_1(B), W_1(B), W_1(A), U_1(A), U_1(B)"
+        self.assertEqual(str(locked), expected)
+
+        locked = schedule.add_locks_two_phase(use_shared_locks=True, strict=True)
+        expected = "S_1 : SL_1(A), R_1(A), XL_1(B), W_1(B), XL_1(A), W_1(A), U_1(A), U_1(B)"
+        self.assertEqual(str(locked), expected)
+
+        # Multi-transaction strict mode
+        schedule = Schedule.parse("S_1 : R_1(A), W_1(B), R_2(B), W_1(A), W_2(B)")
+        locked = schedule.add_locks_two_phase(use_shared_locks=True, strict=True)
+        expected = "S_1 : SL_1(A), R_1(A), XL_1(B), W_1(B), SL_2(B), R_2(B), XL_1(A), W_1(A), U_1(A), U_1(B), XL_2(B), W_2(B), U_2(B)"
         self.assertEqual(str(locked), expected)
