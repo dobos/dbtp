@@ -2,7 +2,7 @@ import random
 
 from ..directedgraph import DirectedGraph
 from ..schedule import Schedule
-from ..schedule_generator import ScheduleGenerator
+from ..schedulegenerator import ScheduleGenerator
 
 
 class DeadlockExercise:

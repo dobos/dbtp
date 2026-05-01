@@ -8,111 +8,256 @@ from .schedule import Schedule
 
 class ScheduleGenerator:
     @classmethod
-    def generate_random_precedence_graph(
-        cls,
-        transaction_count: int = 4,
-        edge_count: int = 4,
-        acyclic: bool = True,
-        cyclic: bool = False,
-        max_attempts: int = None
-    ) -> DirectedGraph:
-
-        """
-        Generate a random precedence graph with the specified number of transactions.
-        Args:
-            transaction_count: Number of transactions (vertices) in the graph
-            edge_count: Number of edges to add to the graph
-            max_attempts: Maximum attempts to generate the desired graph structure
-        Returns:
-            A DirectedGraph representing the precedence graph
-        """
-
-        if cyclic and acyclic:
-            raise ValueError("Graph cannot be both cyclic and acyclic")
-
-        vertices = [ Vertex(id=i, label=i) for i in range(1, transaction_count + 1) ]
-        graph = DirectedGraph(vertices=vertices)
-
-        added_edges = 0
-
-        if cyclic:
-            # Create a random cycle to guarantee cyclicity
-            # Choose a random subset of vertices for the cycle (at least 2)
-            cycle_length = min(random.randint(2, transaction_count), edge_count)
-            cycle_vertices = random.sample(range(1, transaction_count + 1), cycle_length)
-            
-            # Add edges to form a cycle
-            for i in range(cycle_length):
-                src = cycle_vertices[i]
-                dst = cycle_vertices[(i + 1) % cycle_length]
-                graph.add_edge(Edge(source=src, target=dst))
-            
-            added_edges = cycle_length
-
-        # Randomly add directed edges while ensuring acyclicity/cyclicity constraint
-
-        max_attempts = edge_count * 20 if max_attempts is None else max_attempts  # Prevent infinite loops
-        attempts = 0
+    def _next_generated_item_name(cls, item_counter: int) -> str:
         
-        while added_edges < edge_count and attempts < max_attempts:
-            attempts += 1
-            src = random.randint(1, transaction_count)
-            dst = random.randint(1, transaction_count)
-            
-            if src == dst:
-                continue
+        """
+        Pick the next data item name as a label for a conflict graph edge.
 
-            edge = Edge(source=src, target=dst)
-            
-            # Check if edge already exists
-            if graph.has_edge(edge):
-                continue
-            
-            # Temporarily add edge and check for cycles
-            graph.add_edge(edge)
-            
-            if acyclic:
-                try:
-                    graph.topological_sort()
-                    # Graph is still acyclic, keep the edge
-                    added_edges += 1
-                except CyclicGraphError:
-                    # Graph became cyclic, remove the edge
-                    graph.remove_edge(edge)
-            else:
-                # We want any type of graph, keep the edge
-                added_edges += 1
+        Parameters:
+        -----------
+        item_counter: int
+            The number of items generated so far, used to determine the next name.
 
-        if attempts == max_attempts:
-            raise RuntimeError(f"Failed to generate acyclic graph within max attempts")
+        Returns:
+        --------
+        A string representing the next data item name, using single letters for the first 26 items
+        """
 
-        return graph
+        if item_counter < len(Constants.LETTERS):
+            return Constants.LETTERS[item_counter]
+        return f"X{item_counter}"
 
     @classmethod
-    def generate_random_wait_for_graph(
+    def _collect_induced_conflict_edges(
         cls,
-        transaction_count: int = 4,
-        edge_count: int = 4,
-        acyclic: bool = True,
-        cyclic: bool = False,
-        max_attempts: int = None
-    ) -> DirectedGraph:
-
+        operations: list[tuple[int, bool, str]]
+    ) -> set[tuple[int, int]]:
+        
         """
-        Generate a random wait-for graph with the specified number of transactions.
+        Given a list of operations (tx_id, is_write, item), collect all induced conflict edges
+        between transactions.
 
-        A cycle in a wait-for graph indicates deadlock. Use acyclic=True to guarantee
-        no deadlock and cyclic=True to guarantee at least one deadlock cycle.
+        Parameters:
+        -----------
+        operations: list[tuple[int, bool, str]]
+            A list of operations, where each operation is a tuple (tx_id, is_write, item).
 
-        Args:
-            transaction_count: Number of transactions (vertices) in the graph
-            edge_count: Number of edges to add to the graph
-            acyclic: If True, keep the graph acyclic
-            cyclic: If True, force the graph to contain at least one cycle
-            max_attempts: Maximum attempts to generate the desired graph structure
         Returns:
-            A DirectedGraph representing the wait-for graph
+        --------
+        A set of tuples representing the induced conflict edges between transactions.
+
+        A conflict edge (tx1, tx2) exists if there is a pair of operations on the same item where
+        at least one is a write, and the operations are from different transactions.
+
+        This function is used to check if a data item name can be safely reused for multiple edges
+        of the conflict graph without introducing new conflict edges that are not in the original graph.
         """
+
+        induced_edges = set()
+        for i in range(len(operations)):
+            tx1, is_write1, item1 = operations[i]
+            for j in range(i + 1, len(operations)):
+                tx2, is_write2, item2 = operations[j]
+                if tx1 == tx2 or item1 != item2:
+                    continue
+                if is_write1 or is_write2:
+                    induced_edges.add((tx1, tx2))
+        return induced_edges
+
+    @classmethod
+    def _build_operations_for_assignment(
+        cls,
+        graph: DirectedGraph,
+        edge_items: dict[tuple[int, int], str],
+        mode: str,
+        must_read_written: bool,
+        must_write_read: bool
+    ) -> list[tuple[int, bool, str]]:
+        """
+        Build a list of operations for a given edge item assignment.
+
+        Parameters:
+        -----------
+        graph: DirectedGraph
+            The conflict graph for which we are building operations.
+        edge_items: dict[tuple[int, int], str]
+            A mapping from graph edges (source, target) to assigned data item names.
+        mode: str
+            The mode of operation, either "acyclic" or "cyclic".
+        must_read_written: bool
+            A flag indicating whether a transaction must read an item before writing it.
+        must_write_read: bool
+            A flag indicating whether a transaction must write an item before reading it.
+
+        Returns:
+        --------
+        A list of operations, where each operation is a tuple (tx_id, is_write, item).
+
+        Remarks:
+        --------
+        This function generates a sequence of operations (reads and writes) for each transaction
+        based on the assigned edge items. The generated operations respect the constraints
+        specified by the `must_read_written` and `must_write_read` flags.
+
+        The difference between "acyclic" and "cyclic" modes is in how the operations are ordered.
+        In "acyclic" mode, a topological ordering of the transactions is used to ensure that all
+        operations of a transaction appear after the operations of its predecessors in the graph.
+        In "cyclic" mode, operations are generated by iterating through the edges without a
+        guaranteed global ordering, which may be necessary when the graph contains cycles.
+        """
+
+
+        operations: list[tuple[int, bool, str]] = []
+
+        if mode == "acyclic":
+            ordering = graph.topological_sort()
+
+            reads_by_tx = {tx: set() for tx in graph.vertices}
+            writes_by_tx = {tx: set() for tx in graph.vertices}
+
+            incoming_by_tx = {tx: [] for tx in graph.vertices}
+            for (source, target), item_name in edge_items.items():
+                incoming_by_tx[target].append(item_name)
+
+            for tx in ordering:
+                incoming_items = sorted(incoming_by_tx[tx])
+                outgoing_items = sorted(
+                    edge_items[(tx, target)]
+                    for target in graph.adjacency[tx]
+                    if (tx, target) in edge_items
+                )
+
+                for item_name in sorted(incoming_by_tx[tx]):
+                    operations.append((tx, False, item_name))  # READ
+                    reads_by_tx[tx].add(item_name)
+
+                if must_write_read:
+                    for item_name in incoming_items:
+                        if item_name in outgoing_items or item_name in writes_by_tx[tx]:
+                            continue
+                        operations.append((tx, True, item_name))
+                        writes_by_tx[tx].add(item_name)
+
+                for item_name in outgoing_items:
+                    if must_read_written and item_name not in reads_by_tx[tx]:
+                        operations.append((tx, False, item_name))
+                        reads_by_tx[tx].add(item_name)
+                    operations.append((tx, True, item_name))   # WRITE
+                    writes_by_tx[tx].add(item_name)
+
+            return operations
+
+        if mode == "cyclic":
+            reads_by_tx = {tx: set() for tx in graph.vertices}
+            writes_by_tx = {tx: set() for tx in graph.vertices}
+
+            for (source, target), item_name in sorted(edge_items.items()):
+                if must_read_written and item_name not in reads_by_tx[source]:
+                    operations.append((source, False, item_name))
+                    reads_by_tx[source].add(item_name)
+
+                operations.append((source, True, item_name))   # WRITE
+                writes_by_tx[source].add(item_name)
+
+                operations.append((target, False, item_name))  # READ
+                reads_by_tx[target].add(item_name)
+
+                if must_write_read and item_name not in writes_by_tx[target]:
+                    operations.append((target, True, item_name))
+                    writes_by_tx[target].add(item_name)
+
+            return operations
+
+        raise ValueError(f"Unsupported edge assignment mode: {mode}")
+
+    @classmethod
+    def _assign_edge_items(cls, graph: DirectedGraph, mode: str) -> dict[tuple[int, int], str]:
+        """
+        Assign data item names to each edge in the conflict graph.
+        
+        Parameters:
+        -----------
+        graph: DirectedGraph
+            The conflict graph for which we are assigning edge items.
+        mode: str
+            The mode of operation, either "acyclic" or "cyclic", which may affect how items can be reused.
+        
+        Returns:
+        --------
+        A dictionary mapping each edge (source, target) to a data item name (str).
+        
+        Remarks:
+        --------
+        The assignment tries to minimize the number of unique data items used across all edges.
+        It does this by attempting to reuse previously assigned data items for new edges, while
+        ensuring that the induced conflict edges from the operations do not introduce any new
+        edges that are not in the original graph. If no safe reuse is possible, a new unique
+        data item name is generated for the edge.
+        """
+        
+        edge_items: dict[tuple[int, int], str] = {}
+        item_counter = 0
+        generated_items_in_order: list[str] = []
+
+        graph_edges = set(graph.edges.keys())
+
+        for source in graph.vertices:
+            for target in graph.adjacency[source]:
+                edge = graph.edges[(source, target)]
+
+                if edge.label is not None:
+                    # Preserve explicit labels from the graph.
+                    edge_items[(source, target)] = edge.label
+                    continue
+
+                chosen_item = None
+
+                # Try to reuse previously generated items first.
+                for candidate_item in generated_items_in_order:
+                    tentative = edge_items.copy()
+                    tentative[(source, target)] = candidate_item
+                    is_safe = True
+                    for must_read_written in (False, True):
+                        for must_write_read in (False, True):
+                            operations = cls._build_operations_for_assignment(
+                                graph,
+                                tentative,
+                                mode,
+                                must_read_written,
+                                must_write_read,
+                            )
+                            induced_edges = cls._collect_induced_conflict_edges(operations)
+                            if not induced_edges.issubset(graph_edges):
+                                is_safe = False
+                                break
+                        if not is_safe:
+                            break
+
+                    if is_safe:
+                        chosen_item = candidate_item
+                        break
+
+                # If no safe reuse exists, create a new item.
+                if chosen_item is None:
+                    chosen_item = cls._next_generated_item_name(item_counter)
+                    item_counter += 1
+                    generated_items_in_order.append(chosen_item)
+
+                edge_items[(source, target)] = chosen_item
+
+        return edge_items
+
+    @classmethod
+    def _generate_random_directed_graph(
+        cls,
+        transaction_count: int,
+        edge_count: int,
+        acyclic: bool,
+        cyclic: bool,
+        max_attempts: Optional[int],
+        failure_message: str,
+    ) -> DirectedGraph:
+        """Generate a random directed graph with optional acyclic/cyclic constraints."""
 
         if cyclic and acyclic:
             raise ValueError("Graph cannot be both cyclic and acyclic")
@@ -123,7 +268,7 @@ class ScheduleGenerator:
         added_edges = 0
 
         if cyclic:
-            # Create a random cycle to guarantee deadlock
+            # Create a random cycle to guarantee cyclicity.
             cycle_length = min(random.randint(2, transaction_count), edge_count)
             cycle_vertices = random.sample(range(1, transaction_count + 1), cycle_length)
 
@@ -162,9 +307,84 @@ class ScheduleGenerator:
                 added_edges += 1
 
         if attempts == max_attempts:
-            raise RuntimeError("Failed to generate requested wait-for graph within max attempts")
+            raise RuntimeError(failure_message)
 
         return graph
+
+    @classmethod
+    def generate_random_precedence_graph(
+        cls,
+        transaction_count: int = 4,
+        edge_count: int = 4,
+        acyclic: bool = True,
+        cyclic: bool = False,
+        max_attempts: int = None
+    ) -> DirectedGraph:
+
+        """
+        Generate a random precedence graph with the specified number of transactions.
+        
+        Parameters:
+        -----------
+        transaction_count: int
+            Number of transactions (vertices) in the graph
+        edge_count: int
+            Number of edges to add to the graph
+        acyclic: bool
+            If True, keep the graph acyclic
+        cyclic: bool
+            If True, force the graph to contain at least one cycle
+        max_attempts: int
+            Maximum attempts to generate the desired graph structure
+
+        Returns:
+        --------
+        A DirectedGraph representing the precedence graph
+        """
+
+        return cls._generate_random_directed_graph(
+            transaction_count=transaction_count,
+            edge_count=edge_count,
+            acyclic=acyclic,
+            cyclic=cyclic,
+            max_attempts=max_attempts,
+            failure_message="Failed to generate acyclic graph within max attempts",
+        )
+
+    @classmethod
+    def generate_random_wait_for_graph(
+        cls,
+        transaction_count: int = 4,
+        edge_count: int = 4,
+        acyclic: bool = True,
+        cyclic: bool = False,
+        max_attempts: int = None
+    ) -> DirectedGraph:
+
+        """
+        Generate a random wait-for graph with the specified number of transactions.
+
+        A cycle in a wait-for graph indicates deadlock. Use acyclic=True to guarantee
+        no deadlock and cyclic=True to guarantee at least one deadlock cycle.
+
+        Args:
+            transaction_count: Number of transactions (vertices) in the graph
+            edge_count: Number of edges to add to the graph
+            acyclic: If True, keep the graph acyclic
+            cyclic: If True, force the graph to contain at least one cycle
+            max_attempts: Maximum attempts to generate the desired graph structure
+        Returns:
+            A DirectedGraph representing the wait-for graph
+        """
+
+        return cls._generate_random_directed_graph(
+            transaction_count=transaction_count,
+            edge_count=edge_count,
+            acyclic=acyclic,
+            cyclic=cyclic,
+            max_attempts=max_attempts,
+            failure_message="Failed to generate requested wait-for graph within max attempts",
+        )
 
     @classmethod
     def generate_schedule_from_acyclic_precedence_graph(
@@ -177,6 +397,22 @@ class ScheduleGenerator:
         """
         Generate a schedule that produces the given precedence graph.
 
+        Parameters:
+        -----------
+        graph: DirectedGraph
+            An acyclic precedence graph where vertices are transaction IDs and edges
+            represent precedence
+        must_read_written: bool
+            If True, ensure each WRITE is preceded by a READ of the same item by the same transaction
+        must_write_read: bool
+            If True, ensure each READ is followed by a WRITE of the same item by the same transaction
+
+        Returns:
+        --------
+        A Schedule with read and write operations that produce the same precedence graph
+
+        Remarks:
+        --------
         The algorithm:
         1. For each edge (i, j) in the precedence graph, assign a unique data item X_ij
         2. Transaction i will WRITE to X_ij, and transaction j will READ from X_ij
@@ -187,31 +423,11 @@ class ScheduleGenerator:
         by the same transaction (unless that read was already added for an incoming edge).
         When must_write_read is True, every READ operation is followed by a WRITE of the same item
         by the same transaction (unless that write already exists for an outgoing edge).
-
-        Args:
-            graph: A directed graph where vertices are transaction IDs and edges represent precedence
-            must_read_written: If True, ensure each WRITE is preceded by a READ of the same item by the same tx
-            must_write_read: If True, ensure each READ is followed by a WRITE of the same item by the same tx
-
-        Returns:
-            A Schedule with read and write operations that produce the same precedence graph
         """
         operations = []
 
         # For each edge (i, j), assign a unique data item
-        edge_items = {}
-        item_counter = 0
-
-        for source in graph.vertices:
-            for target in graph.adjacency[source]:
-                edge = graph.edges[(source, target)]
-                if edge.label is None:
-                    # Create a unique data item for this edge
-                    item_name = f"{Constants.LETTERS[item_counter]}"
-                else:
-                    item_name = edge.label
-                edge_items[(source, target)] = item_name
-                item_counter += 1
+        edge_items = cls._assign_edge_items(graph, mode="acyclic")
 
         # Try topological sort, if it fails (cyclic), use vertex order as-is
         ordering = graph.topological_sort()
@@ -276,18 +492,25 @@ class ScheduleGenerator:
         """
         Generate a schedule from a cyclic precedence graph by iterating edges.
 
+        Parameters:
+        -----------
+        graph: DirectedGraph
+            A directed graph (possibly cyclic) where vertices are transaction IDs
+        must_read_written: bool
+            If True, ensure each WRITE is preceded by a READ of the same item
+        must_write_read: bool
+            If True, ensure each READ is followed by a WRITE of the same item
+
+        Returns:
+        --------
+        A Schedule with operations that produce the given precedence graph
+
+        Remarks:
+        --------
         For each edge (i, j):
         - Transaction i WRITEs a unique data item X_ij
         - Transaction j READs the same item X_ij
         - This creates a write-read conflict: i -> j
-
-        Args:
-            graph: A directed graph (possibly cyclic) where vertices are transaction IDs
-            must_read_written: If True, ensure each WRITE is preceded by a READ of the same item
-            must_write_read: If True, ensure each READ is followed by a WRITE of the same item
-
-        Returns:
-            A Schedule with operations that produce the given precedence graph
         """
         operations = []
         
@@ -296,18 +519,7 @@ class ScheduleGenerator:
         writes_by_tx = {tx: set() for tx in graph.vertices}
         
         # Assign unique data items to each edge
-        edge_items = {}
-        item_counter = 0
-        
-        for source in graph.vertices:
-            for target in graph.adjacency[source]:
-                edge = graph.edges[(source, target)]
-                if edge.label is None:
-                    item_name = f"{Constants.LETTERS[item_counter]}"
-                else:
-                    item_name = edge.label
-                edge_items[(source, target)] = item_name
-                item_counter += 1
+        edge_items = cls._assign_edge_items(graph, mode="cyclic")
         
         # Iterate through edges and add operations
         for (source, target), item_name in sorted(edge_items.items()):
@@ -461,12 +673,16 @@ class ScheduleGenerator:
         """
         Generate all conflict-equivalent permutations of the given schedule.
 
-        Args:
-            schedule: The original schedule to permute
-            max_permutations: If provided, stop after generating this many permutations
+        Parameters:
+        -----------
+        schedule: Schedule
+            The original schedule to permute
+        max_permutations: Optional[int]
+            If provided, stop after generating this many permutations
 
         Returns:
-            A list of Schedules that are conflict-equivalent to the input schedule
+        --------
+        A list of Schedules that are conflict-equivalent to the input schedule
         """
         if max_permutations is not None and max_permutations <= 0:
             return []
@@ -541,14 +757,19 @@ class ScheduleGenerator:
         this method randomly samples topological sorts of the conflict graph.
         This is much faster when there are many possible permutations.
         
-        Args:
-            schedule: The original schedule to permute
-            count: Number of random permutations to generate
-            max_attempts: Maximum attempts to find unique permutations (default: count * 100)
-                         If None, will keep trying until count unique permutations are found
-        
+        Parameters:
+        -----------
+        schedule: Schedule
+            The original schedule to permute
+        count: int
+            Number of random permutations to generate
+        max_attempts: Optional[int]
+            Maximum attempts to find unique permutations (default: count * 100)
+            If None, will keep trying until count unique permutations are found
+
         Returns:
-            A list of up to 'count' unique random conflict-equivalent schedules
+        --------
+        A list of up to 'count' unique random conflict-equivalent schedules
         """
 
         if count <= 0:

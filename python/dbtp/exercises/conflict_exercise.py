@@ -1,7 +1,7 @@
 import random
 
 from ..schedule import Schedule
-from ..schedule_generator import ScheduleGenerator
+from ..schedulegenerator import ScheduleGenerator
 
 
 class ConflictExercise:
