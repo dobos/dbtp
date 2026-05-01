@@ -19,6 +19,10 @@ class ConflictScheduleGenerator(ScheduleGenerator):
     must_write_read: bool
         If True, ensure each READ is followed by a WRITE of the same item by the same
         transaction (default: False)
+    avoid_two_node_cycles: bool
+        If True, random cyclic precedence graphs avoid mutual edge pairs like
+        T1 -> T2 and T2 -> T1, forcing any generated cycle to involve at least
+        three transactions. Default: False.
     random_item_reuse: bool
         If True, the item-reuse decision in _assign_edge_items becomes probabilistic:
         even when a safe candidate label exists, a new label may be generated instead
@@ -34,6 +38,7 @@ class ConflictScheduleGenerator(ScheduleGenerator):
         *args,
         must_read_written: bool = False,
         must_write_read: bool = False,
+        avoid_two_node_cycles: bool = False,
         random_item_reuse: bool = False,
         new_item_probability: float = 0.5,
         **kwargs
@@ -42,6 +47,7 @@ class ConflictScheduleGenerator(ScheduleGenerator):
 
         self.__must_read_written = must_read_written
         self.__must_write_read = must_write_read
+        self.__avoid_two_node_cycles = avoid_two_node_cycles
         self.__random_item_reuse = random_item_reuse
         self.__new_item_probability = new_item_probability
 
@@ -68,6 +74,14 @@ class ConflictScheduleGenerator(ScheduleGenerator):
         self.__random_item_reuse = value
 
     random_item_reuse = property(__get_random_item_reuse, __set_random_item_reuse)
+
+    def __get_avoid_two_node_cycles(self):
+        return self.__avoid_two_node_cycles
+
+    def __set_avoid_two_node_cycles(self, value):
+        self.__avoid_two_node_cycles = value
+
+    avoid_two_node_cycles = property(__get_avoid_two_node_cycles, __set_avoid_two_node_cycles)
 
     def __get_new_item_probability(self):
         return self.__new_item_probability
@@ -372,6 +386,7 @@ class ConflictScheduleGenerator(ScheduleGenerator):
             edge_count=edge_count,
             acyclic=acyclic,
             cyclic=cyclic,
+            allow_two_node_cycles=not self.__avoid_two_node_cycles,
             failure_message="Failed to generate acyclic graph within max attempts",
         )
     

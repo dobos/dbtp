@@ -12,6 +12,7 @@ class ConflictExercise:
         self.must_read = True
         self.must_write = False
         self.serializable = False
+        self.allow_two_node_cycles = False
         self.random_permutation = True
         self.random_item_reuse = False
         self.new_item_probability = 0.33
@@ -73,6 +74,19 @@ class ConflictExercise:
                 help="Allow non-serializable schedules"
             )
         parser.add_argument(
+            "--allow-two-node-cycles",
+            action="store_true",
+            dest="allow_two_node_cycles",
+            default=False,
+            help="Allow trivial two-transaction cycles in cyclic precedence graphs"
+        )
+        parser.add_argument(
+            "--no-allow-two-node-cycles",
+            action="store_false",
+            dest="allow_two_node_cycles",
+            help="Require cyclic precedence graphs to use at least three transactions"
+        )
+        parser.add_argument(
             "--random-permutation",
             action="store_true",
             dest="random_permutation",
@@ -123,6 +137,8 @@ class ConflictExercise:
             self.must_write = args.must_write
         if hasattr(args, "serializable") and args.serializable is not None:
             self.serializable = args.serializable
+        if hasattr(args, "allow_two_node_cycles") and args.allow_two_node_cycles is not None:
+            self.allow_two_node_cycles = args.allow_two_node_cycles
         if hasattr(args, "random_permutation") and args.random_permutation is not None:
             self.random_permutation = args.random_permutation
         if hasattr(args, "random_item_reuse") and args.random_item_reuse is not None:
@@ -140,6 +156,7 @@ class ConflictExercise:
         print(f"Random seed: {self.seed}")
         print(f"Must read before write: {self.must_read}")
         print(f"Must write after read: {self.must_write}")
+        print(f"Allow two-node cycles: {self.allow_two_node_cycles}")
         print(f"Random conflict-equivalent permutation: {self.random_permutation}")
         print(f"Random item reuse: {self.random_item_reuse}")
         print(f"New item probability: {self.new_item_probability}")
@@ -150,9 +167,18 @@ class ConflictExercise:
             random.seed(self.seed)
 
     def _generate_reference_schedule(self) -> Schedule:
+        avoid_two_node_cycles = (
+            not self.allow_two_node_cycles
+            and (
+                self.serializable
+                or (self.num_transactions >= 3 and self.num_operations >= 3)
+            )
+        )
+
         generator = ConflictScheduleGenerator(
             must_read_written=self.must_read,
             must_write_read=self.must_write,
+            avoid_two_node_cycles=avoid_two_node_cycles,
             random_item_reuse=self.random_item_reuse,
             new_item_probability=self.new_item_probability
         )

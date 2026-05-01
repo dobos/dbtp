@@ -39,12 +39,23 @@ class ScheduleGenerator():
         acyclic: bool,
         cyclic: bool,
         failure_message: str,
+        allow_two_node_cycles: bool = False,
     ) -> DirectedGraph:
         
         """Generate a random directed graph with optional acyclic/cyclic constraints."""
 
         if cyclic and acyclic:
             raise ValueError("Graph cannot be both cyclic and acyclic")
+
+        if cyclic and not allow_two_node_cycles:
+            if node_count < 3:
+                raise ValueError(
+                    "At least 3 nodes are required to generate a cyclic graph without two-node cycles"
+                )
+            if edge_count < 3:
+                raise ValueError(
+                    "At least 3 edges are required to generate a cyclic graph without two-node cycles"
+                )
 
         vertices = [Vertex(id=i, label=i) for i in range(1, node_count + 1)]
         graph = DirectedGraph(vertices=vertices)
@@ -53,7 +64,8 @@ class ScheduleGenerator():
 
         if cyclic:
             # Create a random cycle to guarantee cyclicity.
-            cycle_length = min(random.randint(2, node_count), edge_count)
+            minimum_cycle_length = 2 if allow_two_node_cycles else 3
+            cycle_length = min(random.randint(minimum_cycle_length, node_count), edge_count)
             cycle_vertices = random.sample(range(1, node_count + 1), cycle_length)
 
             for i in range(cycle_length):
@@ -72,6 +84,9 @@ class ScheduleGenerator():
             dst = random.randint(1, node_count)
 
             if src == dst:
+                continue
+
+            if not allow_two_node_cycles and graph.has_edge(Edge(source=dst, target=src)):
                 continue
 
             edge = Edge(source=src, target=dst)

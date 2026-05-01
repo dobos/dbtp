@@ -54,6 +54,35 @@ class ConflictScheduleGeneratorTest(unittest.TestCase):
         with self.assertRaises(CyclicGraphError):
             topo_order = graph.topological_sort()
 
+    def test_generate_random_cyclic_precedence_graph_avoids_two_node_cycles(self):
+        generator = ConflictScheduleGenerator(avoid_two_node_cycles=True)
+
+        for seed in range(10):
+            random.seed(seed)
+            graph = generator.generate_random_precedence_graph(
+                transaction_count=5,
+                edge_count=6,
+                acyclic=False,
+                cyclic=True
+            )
+
+            with self.assertRaises(CyclicGraphError):
+                graph.topological_sort()
+
+            for source, target in graph.edges.keys():
+                self.assertNotIn((target, source), graph.edges)
+
+    def test_generate_random_cyclic_precedence_graph_without_two_node_cycles_requires_three_nodes(self):
+        generator = ConflictScheduleGenerator(avoid_two_node_cycles=True)
+
+        with self.assertRaises(ValueError):
+            generator.generate_random_precedence_graph(
+                transaction_count=2,
+                edge_count=2,
+                acyclic=False,
+                cyclic=True
+            )
+
     def test_simple_two_transaction_chain(self):
         """Test T1 -> T2 precedence"""
         vertices = [
