@@ -19,6 +19,14 @@ class ConflictScheduleGenerator(ScheduleGenerator):
     must_write_read: bool
         If True, ensure each READ is followed by a WRITE of the same item by the same
         transaction (default: False)
+    random_item_reuse: bool
+        If True, the item-reuse decision in _assign_edge_items becomes probabilistic:
+        even when a safe candidate label exists, a new label may be generated instead
+        (controlled by new_item_probability). Default: False.
+    new_item_probability: float
+        Probability in [0, 1] that a *new* data item label is generated for an edge
+        instead of reusing an existing safe candidate. Only used when
+        random_item_reuse is True. Default: 0.5.
     """
 
     def __init__(
@@ -26,12 +34,16 @@ class ConflictScheduleGenerator(ScheduleGenerator):
         *args,
         must_read_written: bool = False,
         must_write_read: bool = False,
+        random_item_reuse: bool = False,
+        new_item_probability: float = 0.5,
         **kwargs
     ):
         super().__init__(*args, **kwargs)
 
         self.__must_read_written = must_read_written
         self.__must_write_read = must_write_read
+        self.__random_item_reuse = random_item_reuse
+        self.__new_item_probability = new_item_probability
 
     def __get_must_read_written(self):
         return self.__must_read_written
@@ -48,7 +60,25 @@ class ConflictScheduleGenerator(ScheduleGenerator):
         self.__must_write_read = value
 
     must_write_read = property(__get_must_write_read, __set_must_write_read)
-    
+
+    def __get_random_item_reuse(self):
+        return self.__random_item_reuse
+
+    def __set_random_item_reuse(self, value):
+        self.__random_item_reuse = value
+
+    random_item_reuse = property(__get_random_item_reuse, __set_random_item_reuse)
+
+    def __get_new_item_probability(self):
+        return self.__new_item_probability
+
+    def __set_new_item_probability(self, value):
+        if not (0.0 <= value <= 1.0):
+            raise ValueError("new_item_probability must be in [0, 1]")
+        self.__new_item_probability = value
+
+    new_item_probability = property(__get_new_item_probability, __set_new_item_probability)
+
     def _next_generated_item_name(self, item_counter: int) -> str:
         
         """
@@ -230,6 +260,18 @@ class ConflictScheduleGenerator(ScheduleGenerator):
         ensuring that the induced conflict edges from the operations do not introduce any new
         edges that are not in the original graph. If no safe reuse is possible, a new unique
         data item name is generated for the edge.
+
+        When random_item_reuse is True, even when a safe candidate label is found the
+        algorithm may randomly decide (with probability new_item_probability) to skip
+        reuse and generate a fresh label instead. This introduces variety in the number
+        of distinct data items across generated schedules.
+
+        Safety guarantee for clique consistency: the safety check builds the full
+        operation sequence for ALL currently assigned edges (using their actual labels)
+        and verifies that the induced conflict graph is a subgraph of the original.
+        This implicitly enforces that the edges sharing a candidate label always form
+        a clique in the conflict graph — even when some clique edges were randomly
+        assigned different labels in earlier iterations.
         """
         
         edge_items: dict[tuple[int, int], str] = {}
@@ -249,30 +291,46 @@ class ConflictScheduleGenerator(ScheduleGenerator):
 
                 chosen_item = None
 
-                # Try to reuse previously generated items first.
-                for candidate_item in generated_items_in_order:
-                    tentative = edge_items.copy()
-                    tentative[(source, target)] = candidate_item
-                    is_safe = True
-                    for must_read_written in (False, True):
-                        for must_write_read in (False, True):
-                            operations = self._build_operations_for_assignment(
-                                graph,
-                                tentative,
-                                mode
-                            )
-                            induced_edges = self._collect_induced_conflict_edges(operations)
-                            if not induced_edges.issubset(graph_edges):
-                                is_safe = False
+                # Decide whether to even attempt label reuse for this edge.
+                # When random_item_reuse is enabled, skip reuse with probability
+                # new_item_probability so that generated schedules contain more
+                # variety in the number of distinct data items.
+                attempt_reuse = not (
+                    self.__random_item_reuse
+                    and random.random() < self.__new_item_probability
+                )
+
+                if attempt_reuse:
+                    # Try to reuse a previously generated label.
+                    # The safety check builds the full operation sequence for ALL
+                    # currently assigned edges and verifies that the induced
+                    # conflict graph remains a subgraph of the original.  This
+                    # guarantees that the edges sharing the candidate label form a
+                    # valid clique — regardless of what labels other clique edges
+                    # were randomly assigned in earlier iterations.
+                    for candidate_item in generated_items_in_order:
+                        tentative = edge_items.copy()
+                        tentative[(source, target)] = candidate_item
+                        is_safe = True
+                        for must_read_written in (False, True):
+                            for must_write_read in (False, True):
+                                operations = self._build_operations_for_assignment(
+                                    graph,
+                                    tentative,
+                                    mode
+                                )
+                                induced_edges = self._collect_induced_conflict_edges(operations)
+                                if not induced_edges.issubset(graph_edges):
+                                    is_safe = False
+                                    break
+                            if not is_safe:
                                 break
-                        if not is_safe:
+
+                        if is_safe:
+                            chosen_item = candidate_item
                             break
 
-                    if is_safe:
-                        chosen_item = candidate_item
-                        break
-
-                # If no safe reuse exists, create a new item.
+                # If no safe reuse exists (or reuse was randomly skipped), create a new item.
                 if chosen_item is None:
                     chosen_item = self._next_generated_item_name(item_counter)
                     item_counter += 1
