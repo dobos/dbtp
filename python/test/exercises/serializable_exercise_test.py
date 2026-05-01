@@ -2,7 +2,7 @@ import unittest
 
 from dbtp.exercises.serializable_exercise import SerializableExercise
 from dbtp.schedule import Schedule
-from dbtp.schedulegenerator import ScheduleGenerator
+from dbtp.schedule_generator import ScheduleGenerator
 
 
 class SerializableExerciseTest(unittest.TestCase):

@@ -1,7 +1,7 @@
 import random
 from typing import Optional
 from .constants import Constants
-from .directedgraph import DirectedGraph, CyclicGraphError, Vertex, Edge
+from .directed_graph import DirectedGraph, CyclicGraphError, Vertex, Edge
 from .operation import Operation, OperationType
 from .schedule import Schedule
 

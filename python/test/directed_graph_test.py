@@ -1,6 +1,6 @@
 import unittest
 
-from dbtp.directedgraph import DirectedGraph, CyclicGraphError, Edge, Vertex
+from dbtp.directed_graph import DirectedGraph, CyclicGraphError, Edge, Vertex
 
 class DirectedGraphTest(unittest.TestCase):
     def test_str(self):
