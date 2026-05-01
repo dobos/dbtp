@@ -17,6 +17,21 @@ class ConflictScheduleGeneratorTest(unittest.TestCase):
         expected_edges = set(graph.edges.keys())
         actual_edges = set(schedule.build_precedence_graph().edges.keys())
         self.assertEqual(actual_edges, expected_edges)
+
+    def assert_transaction_order_preserved(self, original: Schedule, candidate: Schedule):
+        tx_ids = {op.tx for op in original.operations}
+        for tx_id in tx_ids:
+            original_ops = [
+                (op.op, op.item)
+                for op in original.operations
+                if op.tx == tx_id
+            ]
+            candidate_ops = [
+                (op.op, op.item)
+                for op in candidate.operations
+                if op.tx == tx_id
+            ]
+            self.assertEqual(candidate_ops, original_ops)
     
     def test_generate_random_precedence_graph(self):
         """Test generation of precedence graph from schedule"""
@@ -267,10 +282,11 @@ class ConflictScheduleGeneratorTest(unittest.TestCase):
 
         schedule = Schedule.parse("S_1 : W_1(A), W_1(B), R_2(A), W_2(C), R_3(B), W_3(D), R_4(C), R_4(D)")
         permutations = generator.generate_conflict_equivalent_permutations(schedule)
-        self.assertEqual(len(permutations), 2520)
+        self.assertEqual(len(permutations), 20)
 
         for i in range(5):
             self.assertTrue(schedule.is_conflict_equivalent_with(permutations[i]))
+            self.assert_transaction_order_preserved(schedule, permutations[i])
         
         schedule = Schedule.parse("S_1 : R_1(A), W_1(A), R_1(B), W_1(B), R_2(A), W_2(A), R_2(C), W_2(C), R_3(B), W_3(B), R_3(D), W_3(D), R_4(C), R_4(D), W_4(C), W_4(D)")
         permutations = generator.generate_conflict_equivalent_permutations(schedule, max_permutations=100)
@@ -278,6 +294,17 @@ class ConflictScheduleGeneratorTest(unittest.TestCase):
 
         for i in range(5):
             self.assertTrue(schedule.is_conflict_equivalent_with(permutations[i]))
+            self.assert_transaction_order_preserved(schedule, permutations[i])
+
+    def test_generate_conflict_equivalent_permutations_preserves_transaction_order(self):
+        generator = ConflictScheduleGenerator()
+        schedule = Schedule.parse("S_1 : R_1(A), R_1(B), W_2(C), R_3(C)")
+
+        permutations = generator.generate_conflict_equivalent_permutations(schedule)
+        self.assertGreater(len(permutations), 0)
+
+        for permutation in permutations:
+            self.assert_transaction_order_preserved(schedule, permutation)
 
     def test_generate_random_conflict_equivalent_permutations(self):
         generator = ConflictScheduleGenerator()
@@ -291,6 +318,7 @@ class ConflictScheduleGeneratorTest(unittest.TestCase):
 
         for i in range(10):
             self.assertTrue(schedule.is_conflict_equivalent_with(permutations[i]))
+            self.assert_transaction_order_preserved(schedule, permutations[i])
         
         schedule = Schedule.parse("S_1 : R_1(A), W_1(A), R_1(B), W_1(B), R_2(A), W_2(A), R_2(C), W_2(C), R_3(B), W_3(B), R_3(D), W_3(D), R_4(C), R_4(D), W_4(C), W_4(D)")
         permutations = generator.generate_random_conflict_equivalent_permutations(
@@ -301,6 +329,20 @@ class ConflictScheduleGeneratorTest(unittest.TestCase):
 
         for i in range(20):
             self.assertTrue(schedule.is_conflict_equivalent_with(permutations[i]))
+            self.assert_transaction_order_preserved(schedule, permutations[i])
+
+    def test_generate_random_conflict_equivalent_permutations_preserves_transaction_order(self):
+        generator = ConflictScheduleGenerator()
+        schedule = Schedule.parse("S_1 : R_1(A), R_1(B), W_2(C), R_3(C)")
+
+        permutations = generator.generate_random_conflict_equivalent_permutations(
+            schedule,
+            count=10
+        )
+        self.assertGreater(len(permutations), 0)
+
+        for permutation in permutations:
+            self.assert_transaction_order_preserved(schedule, permutation)
 
 if __name__ == "__main__":
     unittest.main()

@@ -557,14 +557,12 @@ class ConflictScheduleGenerator(ScheduleGenerator):
         ops = schedule.operations
         n = len(ops)
 
-        # Build conflict graph
-        graph = schedule.build_conflict_graph()
-        indegree = graph.get_in_degree()
+        adjacency, indegree = self._build_permutation_dependencies(schedule)
 
         results: list[Schedule] = []
 
         # Backtracking to enumerate all topological sorts of the partial order
-        def backtrack(path: list[int], indeg: list[int], available: list[int]):
+        def backtrack(path: list[int], indeg: dict[int, int], available: list[int]):
             # Early stop if we've reached the requested number of permutations
             if max_permutations is not None and len(results) >= max_permutations:
                 return
@@ -591,7 +589,7 @@ class ConflictScheduleGenerator(ScheduleGenerator):
                 indeg_snapshot = indeg.copy()
 
                 # Decrease indegree of neighbors and add newly available nodes
-                for neigh in graph.adjacency[idx]:
+                for neigh in adjacency[idx]:
                     indeg_snapshot[neigh] -= 1
                     if indeg_snapshot[neigh] == 0:
                         new_available.append(neigh)
@@ -609,6 +607,45 @@ class ConflictScheduleGenerator(ScheduleGenerator):
         backtrack([], indegree, initial_available)
         
         return results
+
+    def _build_permutation_dependencies(
+        self,
+        schedule: Schedule
+    ) -> tuple[dict[int, list[int]], dict[int, int]]:
+
+        """
+        Build DAG dependencies for schedule permutations.
+
+        Dependencies are the union of:
+        1. Conflict edges between operations.
+        2. In-transaction order edges between consecutive operations of the same
+           transaction, so each transaction keeps its exact operation order.
+        """
+
+        graph = schedule.build_conflict_graph()
+        adjacency = {
+            node: set(neighbors)
+            for node, neighbors in graph.adjacency.items()
+        }
+
+        indegree = {node: 0 for node in graph.vertices.keys()}
+        for source in adjacency.keys():
+            for target in adjacency[source]:
+                indegree[target] += 1
+
+        last_index_by_tx: dict[int, int] = {}
+        for index, op in enumerate(schedule.operations):
+            if op.tx in last_index_by_tx:
+                previous = last_index_by_tx[op.tx]
+                if index not in adjacency[previous]:
+                    adjacency[previous].add(index)
+                    indegree[index] += 1
+            last_index_by_tx[op.tx] = index
+
+        return {
+            node: sorted(neighbors)
+            for node, neighbors in adjacency.items()
+        }, indegree
     
     def generate_random_conflict_equivalent_permutations(
         self,
@@ -643,9 +680,7 @@ class ConflictScheduleGenerator(ScheduleGenerator):
         if n == 0:
             return []
 
-        # Build conflict graph
-        graph = schedule.build_conflict_graph()
-        base_indegree = graph.get_in_degree()
+        adjacency, base_indegree = self._build_permutation_dependencies(schedule)
         
         results: list[Schedule] = []
         seen_permutations: set[tuple[int, ...]] = set()
@@ -669,7 +704,7 @@ class ConflictScheduleGenerator(ScheduleGenerator):
                 available.remove(idx)
                 
                 # Update indegrees and available nodes
-                for neighbor in graph.adjacency[idx]:
+                for neighbor in adjacency[idx]:
                     indegree[neighbor] -= 1
                     if indegree[neighbor] == 0:
                         available.append(neighbor)
