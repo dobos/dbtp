@@ -55,6 +55,14 @@ class MixedConflictEquivalentExercise(ConflictExercise):
         count: int,
         max_attempts: int = None
     ) -> list[Schedule]:
+        
+        """
+        Generate schedules that are not conflict-equivalent to the reference schedule by shuffling
+        the operations and checking for equivalence. This is a brute-force approach
+        and may not be efficient for large schedules or high counts, but it serves the
+        purpose of generating non-equivalent schedules for exercises.
+        """
+
         if count <= 0:
             return []
 
