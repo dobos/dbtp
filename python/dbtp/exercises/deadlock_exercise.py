@@ -2,7 +2,7 @@ import random
 
 from ..directed_graph import DirectedGraph
 from ..schedule import Schedule
-from ..schedule_generator import ScheduleGenerator
+from ..waitfor_schedule_generator import WaitforScheduleGenerator
 
 
 class DeadlockExercise:
@@ -100,14 +100,15 @@ class DeadlockExercise:
             random.seed(self.seed)
 
     def _generate_schedule(self) -> Schedule:
-        wait_for_graph = ScheduleGenerator.generate_random_wait_for_graph(
+        generator = WaitforScheduleGenerator()
+        wait_for_graph = generator.generate_random_wait_for_graph(
             transaction_count=self.num_transactions,
             edge_count=self.num_operations,
             acyclic=not self.deadlocking,
             cyclic=self.deadlocking,
         )
 
-        schedule = ScheduleGenerator.generate_schedule_from_wait_for_graph(wait_for_graph)
+        schedule = generator.generate_schedule_from_wait_for_graph(wait_for_graph)
         schedule.id = 1
 
         # Verify strict-2PL and legality constraints.

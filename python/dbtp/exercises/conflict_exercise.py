@@ -1,7 +1,7 @@
 import random
 
 from ..schedule import Schedule
-from ..schedule_generator import ScheduleGenerator
+from ..conflict_schedule_generator import ConflictScheduleGenerator
 
 
 class ConflictExercise:
@@ -130,16 +130,19 @@ class ConflictExercise:
             random.seed(self.seed)
 
     def _generate_reference_schedule(self) -> Schedule:
-        graph = ScheduleGenerator.generate_random_precedence_graph(
+        generator = ConflictScheduleGenerator(
+            must_read_written=self.must_read,
+            must_write_read=self.must_write
+        )
+
+        graph = generator.generate_random_precedence_graph(
             transaction_count=self.num_transactions,
             edge_count=self.num_operations,
             acyclic=self.serializable,
             cyclic=not self.serializable
         )
-        return ScheduleGenerator.generate_schedule_from_cyclic_precedence_graph(
+        return generator.generate_schedule_from_cyclic_precedence_graph(
             graph,
-            must_read_written=self.must_read,
-            must_write_read=self.must_write
         )
 
     def _random_conflict_equivalent_permutation(
@@ -150,11 +153,14 @@ class ConflictExercise:
     ) -> Schedule:
         if not self.random_permutation:
             return schedule
+        
+        generator = ConflictScheduleGenerator(
+            max_attempts=max_attempts
+        )
 
-        permutations = ScheduleGenerator.generate_random_conflict_equivalent_permutations(
+        permutations = generator.generate_random_conflict_equivalent_permutations(
             schedule,
             count=count,
-            max_attempts=max_attempts,
         )
         if not permutations:
             return schedule
@@ -181,10 +187,13 @@ class ConflictExercise:
         if max_attempts is None:
             max_attempts = max(count * 300, 1000)
 
-        equivalent = ScheduleGenerator.generate_random_conflict_equivalent_permutations(
+        generator = ConflictScheduleGenerator(
+            max_attempts=max_attempts
+        )
+
+        equivalent = generator.generate_random_conflict_equivalent_permutations(
             reference,
             count=count,
-            max_attempts=max_attempts
         )
 
         if len(equivalent) < count:

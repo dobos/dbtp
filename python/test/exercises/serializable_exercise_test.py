@@ -2,16 +2,16 @@ import unittest
 
 from dbtp.exercises.serializable_exercise import SerializableExercise
 from dbtp.schedule import Schedule
-from dbtp.schedule_generator import ScheduleGenerator
+from dbtp.conflict_schedule_generator import ConflictScheduleGenerator
 
 
 class SerializableExerciseTest(unittest.TestCase):
     def test_random_conflict_equivalent_permutations_preserve_class(self):
         original = Schedule.parse("S_1 : W_1(A), R_2(A), W_2(B), R_1(B)")
-        permutations = ScheduleGenerator.generate_random_conflict_equivalent_permutations(
+        generator = ConflictScheduleGenerator(max_attempts=200)
+        permutations = generator.generate_random_conflict_equivalent_permutations(
             original,
             count=5,
-            max_attempts=200,
         )
 
         self.assertTrue(len(permutations) > 0)
