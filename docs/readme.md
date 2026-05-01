@@ -38,7 +38,7 @@ Parameters controlling schedule generation:
 * `--allow-two-node-cycles`, `--no-allow-two-node-cycles`: whether cyclic precedence graphs may use trivial two-transaction cycles (default: disabled)
 * `--random-item-reuse`: when set, data items may be randomly reused across edges (increasing conflicts)
 * `--new-item-probability`: probability of introducing a new data item when `--random-item-reuse` is active (0.0–1.0, default 0.5)
-* `--num-non-conflicting-operations`: number of extra non-conflicting operations inserted at random positions after schedule generation (default 0); each uses a fresh data item not present in the original schedule, so no new conflict-graph edges are introduced
+* `--num-non-conflicting-operations`: number of extra non-conflicting operations inserted at random positions after schedule generation (default 0); each is a validated `READ` on an already-used data item label, and only insertions that preserve the original conflict graph are kept
 
 ## Generate conflict-equivalent schedules
 

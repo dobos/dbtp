@@ -229,3 +229,21 @@ class MixedConflictEquivalentExercise(ConflictExercise):
         print("Solutions:")
         print(f"Equivalent to reference: {sorted(equivalent_ids)}")
         print(f"Not equivalent to reference: {sorted(non_equivalent_ids)}")
+        print()
+
+        all_schedules = [reference] + generated
+        serializable_ids = [
+            schedule.id
+            for schedule in all_schedules
+            if schedule.is_conflict_serializable()
+        ]
+        non_serializable_ids = [
+            schedule.id
+            for schedule in all_schedules
+            if not schedule.is_conflict_serializable()
+        ]
+
+        print("Serializability:")
+        print(f"Conflict-serializable: {sorted(serializable_ids)}")
+        print(f"Not conflict-serializable: {sorted(non_serializable_ids)}")
+        print()

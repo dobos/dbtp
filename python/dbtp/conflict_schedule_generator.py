@@ -101,9 +101,10 @@ class ConflictScheduleGenerator(ScheduleGenerator):
         """
         Extend a schedule with non-conflicting operations inserted at random positions.
 
-        Each added operation uses a fresh data item not present in the original
-        schedule, so it shares no item with any existing operation and therefore
-        introduces no new edges to the conflict graph regardless of insertion point.
+        Each added operation is a READ on a data item label already used in the
+        schedule. Candidate reads are tried across existing transactions and random
+        insertion positions, and only insertions that preserve the original
+        transaction-level precedence graph are accepted.
 
         Parameters:
         -----------
@@ -123,27 +124,37 @@ class ConflictScheduleGenerator(ScheduleGenerator):
         if count == 0:
             return schedule
 
-        used_items = {op.item for op in schedule.operations}
-        transactions = list({op.tx for op in schedule.operations})
-        if not transactions:
+        items = sorted({op.item for op in schedule.operations if op.item is not None})
+        transactions = sorted({op.tx for op in schedule.operations})
+        if not items or not transactions:
             return schedule
 
-        # Collect enough fresh item names not already used in the schedule
-        fresh_items: list[str] = []
-        counter = 0
-        while len(fresh_items) < count:
-            name = self._next_generated_item_name(counter)
-            counter += 1
-            if name not in used_items:
-                fresh_items.append(name)
-
+        expected_edges = set(schedule.build_precedence_graph().edges.keys())
         ops = list(schedule.operations)
-        for item_name in fresh_items:
-            tx = random.choice(transactions)
-            op_type = random.choice([OperationType.READ, OperationType.WRITE])
-            new_op = Operation(tx=tx, op=op_type, item=item_name)
-            pos = random.randint(0, len(ops))
-            ops.insert(pos, new_op)
+
+        remaining = count
+        while remaining > 0:
+            valid_insertions: list[tuple[int, Operation]] = []
+
+            for tx in transactions:
+                for item in items:
+                    candidate_op = Operation(tx=tx, op=OperationType.READ, item=item)
+                    for pos in range(len(ops) + 1):
+                        candidate_ops = ops.copy()
+                        candidate_ops.insert(pos, candidate_op)
+                        candidate_schedule = Schedule(id=schedule.id, operations=candidate_ops)
+                        candidate_edges = set(candidate_schedule.build_precedence_graph().edges.keys())
+                        if candidate_edges == expected_edges:
+                            valid_insertions.append((pos, candidate_op))
+
+            if not valid_insertions:
+                raise RuntimeError(
+                    "Could not insert the requested number of non-conflicting operations"
+                )
+
+            pos, candidate_op = random.choice(valid_insertions)
+            ops.insert(pos, Operation(tx=candidate_op.tx, op=candidate_op.op, item=candidate_op.item))
+            remaining -= 1
 
         return Schedule(id=schedule.id, operations=ops)
 

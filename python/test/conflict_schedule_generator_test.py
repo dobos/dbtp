@@ -1,5 +1,6 @@
 import unittest
 import random
+from collections import Counter
 
 from dbtp import (
     DirectedGraph,
@@ -360,8 +361,8 @@ class ConflictScheduleGeneratorTest(unittest.TestCase):
 
         self.assertEqual(len(extended.operations), len(base.operations) + 3)
 
-    def test_non_conflicting_operations_use_fresh_items(self):
-        """Non-conflicting ops must use item names not present in the base schedule."""
+    def test_non_conflicting_operations_can_reuse_existing_items(self):
+        """Non-conflicting ops may safely reuse item names already present in the schedule."""
         vertices = [Vertex(id=1, label=1), Vertex(id=2, label=2)]
         edges = [Edge(source=1, target=2, label=None)]
         graph = DirectedGraph(vertices=vertices, edges=edges)
@@ -375,12 +376,43 @@ class ConflictScheduleGeneratorTest(unittest.TestCase):
         generator_extra = ConflictScheduleGenerator()
         extended = generator_extra.add_non_conflicting_operations(base, 4)
 
-        extra_ops = extended.operations[:]
-        # Remove the base operations (by identity match on tx/op/item)
-        base_op_strs = [str(op) for op in base.operations]
-        remaining = [op for op in extra_ops if str(op) not in base_op_strs]
-        for op in remaining:
-            self.assertNotIn(op.item, base_items)
+        base_counts = Counter((op.tx, op.op, op.item) for op in base.operations)
+        extended_counts = Counter((op.tx, op.op, op.item) for op in extended.operations)
+
+        self.assertEqual(
+            sum(extended_counts.values()) - sum(base_counts.values()),
+            4
+        )
+        self.assertTrue(
+            any(extended_counts[key] > base_counts.get(key, 0) for key in base_counts)
+        )
+
+        for op in extended.operations:
+            if op.item is not None:
+                self.assertIn(op.item, base_items)
+
+    def test_non_conflicting_operations_can_insert_novel_reads_on_existing_items(self):
+        schedule = Schedule.parse("S_1 : W_1(A), R_2(A), W_2(B), R_3(B)")
+
+        random.seed(3)
+        extended = ConflictScheduleGenerator().add_non_conflicting_operations(schedule, 3)
+
+        base_counts = Counter((op.tx, op.op, op.item) for op in schedule.operations)
+        extended_counts = Counter((op.tx, op.op, op.item) for op in extended.operations)
+
+        self.assertEqual(len(extended.operations), len(schedule.operations) + 3)
+        self.assertGreaterEqual(
+            extended_counts[(1, OperationType.READ, "B")],
+            1
+        )
+        self.assertGreaterEqual(
+            extended_counts[(2, OperationType.READ, "B")],
+            1
+        )
+        self.assertGreater(
+            extended_counts[(2, OperationType.READ, "A")],
+            base_counts[(2, OperationType.READ, "A")]
+        )
 
     def test_non_conflicting_operations_do_not_add_conflict_edges(self):
         """Conflict graph edges must be identical before and after adding non-conflicting ops."""
