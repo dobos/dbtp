@@ -16,6 +16,7 @@ class ConflictExercise:
         self.random_permutation = True
         self.random_item_reuse = False
         self.new_item_probability = 0.33
+        self.num_non_conflicting_operations = 0
         self.latex = False
         self.print_conflict_graphs = False
 
@@ -112,6 +113,12 @@ class ConflictExercise:
             help="Probability of introducing a new data item (0.0-1.0, default 0.5)"
         )
         parser.add_argument(
+            "--num-non-conflicting-operations",
+            type=int,
+            dest="num_non_conflicting_operations",
+            help="Number of non-conflicting operations to insert at random positions (default 0)"
+        )
+        parser.add_argument(
             "--latex",
             action="store_true",
             dest="latex",
@@ -145,6 +152,8 @@ class ConflictExercise:
             self.random_item_reuse = args.random_item_reuse
         if hasattr(args, "new_item_probability") and args.new_item_probability is not None:
             self.new_item_probability = args.new_item_probability
+        if hasattr(args, "num_non_conflicting_operations") and args.num_non_conflicting_operations is not None:
+            self.num_non_conflicting_operations = args.num_non_conflicting_operations
         if hasattr(args, "latex") and args.latex is not None:
             self.latex = args.latex
         if hasattr(args, "print_conflict_graphs") and args.print_conflict_graphs is not None:
@@ -160,6 +169,7 @@ class ConflictExercise:
         print(f"Random conflict-equivalent permutation: {self.random_permutation}")
         print(f"Random item reuse: {self.random_item_reuse}")
         print(f"New item probability: {self.new_item_probability}")
+        print(f"Non-conflicting operations: {self.num_non_conflicting_operations}")
         print(f"Print conflict graphs: {self.print_conflict_graphs}")
 
     def _setup_random(self):
@@ -189,9 +199,15 @@ class ConflictExercise:
             acyclic=self.serializable,
             cyclic=not self.serializable
         )
-        return generator.generate_schedule_from_cyclic_precedence_graph(
+        schedule = generator.generate_schedule_from_cyclic_precedence_graph(
             graph,
         )
+        if self.num_non_conflicting_operations > 0:
+            schedule = generator.add_non_conflicting_operations(
+                schedule,
+                self.num_non_conflicting_operations
+            )
+        return schedule
 
     def _random_conflict_equivalent_permutation(
         self,

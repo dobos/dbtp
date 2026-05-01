@@ -9,7 +9,7 @@ from .schedule import Schedule
 
 class ConflictScheduleGenerator(ScheduleGenerator):
     """
-    
+
     Variables:
     ----------
 
@@ -92,6 +92,60 @@ class ConflictScheduleGenerator(ScheduleGenerator):
         self.__new_item_probability = value
 
     new_item_probability = property(__get_new_item_probability, __set_new_item_probability)
+
+    def add_non_conflicting_operations(
+        self,
+        schedule: Schedule,
+        count: int
+    ) -> Schedule:
+        """
+        Extend a schedule with non-conflicting operations inserted at random positions.
+
+        Each added operation uses a fresh data item not present in the original
+        schedule, so it shares no item with any existing operation and therefore
+        introduces no new edges to the conflict graph regardless of insertion point.
+
+        Parameters:
+        -----------
+        schedule: Schedule
+            The schedule to extend.
+        count: int
+            Number of non-conflicting operations to insert.
+
+        Returns:
+        --------
+        A new Schedule with the same id and the additional operations interleaved
+        at random positions. If count is 0 the original schedule is returned unchanged.
+        """
+        if count < 0:
+            raise ValueError("count must be >= 0")
+
+        if count == 0:
+            return schedule
+
+        used_items = {op.item for op in schedule.operations}
+        transactions = list({op.tx for op in schedule.operations})
+        if not transactions:
+            return schedule
+
+        # Collect enough fresh item names not already used in the schedule
+        fresh_items: list[str] = []
+        counter = 0
+        while len(fresh_items) < count:
+            name = self._next_generated_item_name(counter)
+            counter += 1
+            if name not in used_items:
+                fresh_items.append(name)
+
+        ops = list(schedule.operations)
+        for item_name in fresh_items:
+            tx = random.choice(transactions)
+            op_type = random.choice([OperationType.READ, OperationType.WRITE])
+            new_op = Operation(tx=tx, op=op_type, item=item_name)
+            pos = random.randint(0, len(ops))
+            ops.insert(pos, new_op)
+
+        return Schedule(id=schedule.id, operations=ops)
 
     def _next_generated_item_name(self, item_counter: int) -> str:
         

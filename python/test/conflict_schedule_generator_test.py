@@ -344,5 +344,96 @@ class ConflictScheduleGeneratorTest(unittest.TestCase):
         for permutation in permutations:
             self.assert_transaction_order_preserved(schedule, permutation)
 
+    def test_non_conflicting_operations_extend_schedule_length(self):
+        """Adding N non-conflicting ops produces a schedule with N extra operations."""
+        vertices = [Vertex(id=1, label=1), Vertex(id=2, label=2)]
+        edges = [Edge(source=1, target=2, label=None)]
+        graph = DirectedGraph(vertices=vertices, edges=edges)
+
+        random.seed(0)
+        generator_base = ConflictScheduleGenerator()
+        base = generator_base.generate_schedule_from_acyclic_precedence_graph(graph)
+
+        random.seed(0)
+        generator_extra = ConflictScheduleGenerator()
+        extended = generator_extra.add_non_conflicting_operations(base, 3)
+
+        self.assertEqual(len(extended.operations), len(base.operations) + 3)
+
+    def test_non_conflicting_operations_use_fresh_items(self):
+        """Non-conflicting ops must use item names not present in the base schedule."""
+        vertices = [Vertex(id=1, label=1), Vertex(id=2, label=2)]
+        edges = [Edge(source=1, target=2, label=None)]
+        graph = DirectedGraph(vertices=vertices, edges=edges)
+
+        random.seed(42)
+        generator_base = ConflictScheduleGenerator()
+        base = generator_base.generate_schedule_from_acyclic_precedence_graph(graph)
+        base_items = {op.item for op in base.operations}
+
+        random.seed(42)
+        generator_extra = ConflictScheduleGenerator()
+        extended = generator_extra.add_non_conflicting_operations(base, 4)
+
+        extra_ops = extended.operations[:]
+        # Remove the base operations (by identity match on tx/op/item)
+        base_op_strs = [str(op) for op in base.operations]
+        remaining = [op for op in extra_ops if str(op) not in base_op_strs]
+        for op in remaining:
+            self.assertNotIn(op.item, base_items)
+
+    def test_non_conflicting_operations_do_not_add_conflict_edges(self):
+        """Conflict graph edges must be identical before and after adding non-conflicting ops."""
+        vertices = [
+            Vertex(id=1, label=1), Vertex(id=2, label=2),
+            Vertex(id=3, label=3), Vertex(id=4, label=4)
+        ]
+        edges = [
+            Edge(source=1, target=2, label=None),
+            Edge(source=2, target=4, label=None),
+            Edge(source=4, target=1, label=None),
+            Edge(source=1, target=3, label=None)
+        ]
+        graph = DirectedGraph(vertices=vertices, edges=edges)
+
+        for seed in range(10):
+            random.seed(seed)
+            generator_base = ConflictScheduleGenerator()
+            base = generator_base.generate_schedule_from_cyclic_precedence_graph(graph)
+            base_conflict_edges = set(base.build_precedence_graph().edges.keys())
+
+            random.seed(seed)
+            generator_extra = ConflictScheduleGenerator()
+            extended = generator_extra.add_non_conflicting_operations(base, 5)
+            extended_conflict_edges = set(extended.build_precedence_graph().edges.keys())
+
+            self.assertEqual(
+                extended_conflict_edges, base_conflict_edges,
+                f"seed={seed}: conflict edges changed after inserting non-conflicting ops"
+            )
+
+    def test_non_conflicting_operations_zero_leaves_schedule_unchanged(self):
+        """add_non_conflicting_operations(..., 0) must not alter the schedule."""
+        vertices = [Vertex(id=1, label=1), Vertex(id=2, label=2)]
+        edges = [Edge(source=1, target=2, label=None)]
+        graph = DirectedGraph(vertices=vertices, edges=edges)
+
+        random.seed(7)
+        g1 = ConflictScheduleGenerator()
+        s2 = g1.generate_schedule_from_acyclic_precedence_graph(graph)
+
+        random.seed(7)
+        s1 = g1.add_non_conflicting_operations(s2, 0)
+
+        self.assertEqual(str(s1), str(s2))
+
+    def test_add_non_conflicting_operations_invalid_count_raises(self):
+        """Negative count must raise ValueError."""
+        with self.assertRaises(ValueError):
+            ConflictScheduleGenerator().add_non_conflicting_operations(
+                Schedule.parse("S_1 : W_1(A), R_2(A)"),
+                -1
+            )
+
 if __name__ == "__main__":
     unittest.main()
