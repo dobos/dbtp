@@ -4,6 +4,11 @@ from .conflict_exercise import ConflictExercise
 
 
 class ConflictEquivalentExercise(ConflictExercise):
+    """
+    Generates a conflict-equivalency exercise, where the task is to determine which of the given schedules
+    are conflict-equivalent to a reference schedule.
+    """
+
     def __init__(self):
         super().__init__()
         self.num_schedules = 4

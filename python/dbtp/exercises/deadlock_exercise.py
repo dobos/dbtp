@@ -11,6 +11,7 @@ class DeadlockExercise:
         self.num_operations = 4
         self.seed = None
         self.deadlocking = True
+        self.allow_two_node_cycles = False
         self.latex = False
         self.print_wait_for_graph = False
         self.graph_after_ops = None
@@ -51,6 +52,19 @@ class DeadlockExercise:
             dest="deadlocking",
             help="Generate a schedule that does not deadlock"
         )
+        parser.add_argument(
+            "--allow-two-node-cycles",
+            action="store_true",
+            dest="allow_two_node_cycles",
+            default=False,
+            help="Allow deadlocking wait-for graphs to contain two-transaction cycles"
+        )
+        parser.add_argument(
+            "--no-allow-two-node-cycles",
+            action="store_false",
+            dest="allow_two_node_cycles",
+            help="Require deadlocking wait-for graphs to use at least three transactions"
+        )
 
         parser.add_argument(
             "--graph",
@@ -79,6 +93,8 @@ class DeadlockExercise:
             self.seed = args.seed
         if hasattr(args, "deadlocking") and args.deadlocking is not None:
             self.deadlocking = args.deadlocking
+        if hasattr(args, "allow_two_node_cycles") and args.allow_two_node_cycles is not None:
+            self.allow_two_node_cycles = args.allow_two_node_cycles
         if hasattr(args, "latex") and args.latex is not None:
             self.latex = args.latex
         if hasattr(args, "print_wait_for_graph") and args.print_wait_for_graph is not None:
@@ -92,6 +108,7 @@ class DeadlockExercise:
         print(f"Number of wait-for edges: {self.num_operations}")
         print(f"Random seed: {self.seed}")
         print(f"Target deadlocking: {self.deadlocking}")
+        print(f"Allow two-node cycles: {self.allow_two_node_cycles}")
         print(f"Print wait-for graph: {self.print_wait_for_graph}")
         print(f"Graph after ops: {self.graph_after_ops}")
 
@@ -106,6 +123,7 @@ class DeadlockExercise:
             edge_count=self.num_operations,
             acyclic=not self.deadlocking,
             cyclic=self.deadlocking,
+            allow_two_node_cycles=self.allow_two_node_cycles,
         )
 
         schedule = generator.generate_schedule_from_wait_for_graph(wait_for_graph)

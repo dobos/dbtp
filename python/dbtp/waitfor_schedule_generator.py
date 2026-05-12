@@ -17,6 +17,7 @@ class WaitforScheduleGenerator(ScheduleGenerator):
         edge_count: int = 4,
         acyclic: bool = True,
         cyclic: bool = False,
+        allow_two_node_cycles: bool = False,
     ) -> DirectedGraph:
 
         """
@@ -40,6 +41,7 @@ class WaitforScheduleGenerator(ScheduleGenerator):
             acyclic=acyclic,
             cyclic=cyclic,
             failure_message="Failed to generate requested wait-for graph within max attempts",
+            allow_two_node_cycles=allow_two_node_cycles,
         )
 
     def generate_schedule_from_wait_for_graph(
@@ -141,16 +143,22 @@ class WaitforScheduleGenerator(ScheduleGenerator):
         # Ensure all transactions perform at least one lock/access operation.
         idle_txs = [tx for tx in graph.vertices if not seen_items_by_tx[tx]]
         random.shuffle(idle_txs)
-        for tx in idle_txs:
-            solo_item = f"TX{tx}_SOLO"
-            while solo_item in used_items:
-                solo_item = f"{solo_item}_X"
-            used_items.add(solo_item)
-
-            operations.append(Operation(tx=tx, op=OperationType.XLOCK, item=solo_item))
-            operations.append(Operation(tx=tx, op=OperationType.WRITE, item=solo_item))
-            seen_items_by_tx[tx].add(solo_item)
-            locked_items_by_tx[tx].append(solo_item)
+        
+        # Find available letters for idle transactions
+        available_letters = [letter for letter in Constants.LETTERS if letter not in used_items]
+        
+        for idx, tx in enumerate(idle_txs):
+            if idx < len(available_letters):
+                item = available_letters[idx]
+            else:
+                item = f"X{idx}"
+            
+            used_items.add(item)
+            
+            operations.append(Operation(tx=tx, op=OperationType.XLOCK, item=item))
+            operations.append(Operation(tx=tx, op=OperationType.WRITE, item=item))
+            seen_items_by_tx[tx].add(item)
+            locked_items_by_tx[tx].append(item)
 
         # Strict 2PL tail: release all held locks at transaction end.
         tx_order = list(graph.vertices.keys())

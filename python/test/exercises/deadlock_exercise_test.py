@@ -16,6 +16,7 @@ class DeadlockExerciseTest(unittest.TestCase):
             num_operations=6,
             seed=7,
             deadlocking=False,
+            allow_two_node_cycles=True,
             latex=True,
             print_wait_for_graph=True,
             graph_after_ops=8,
@@ -27,9 +28,35 @@ class DeadlockExerciseTest(unittest.TestCase):
         self.assertEqual(exercise.num_operations, 6)
         self.assertEqual(exercise.seed, 7)
         self.assertFalse(exercise.deadlocking)
+        self.assertTrue(exercise.allow_two_node_cycles)
         self.assertTrue(exercise.latex)
         self.assertTrue(exercise.print_wait_for_graph)
         self.assertEqual(exercise.graph_after_ops, 8)
+
+    def test_generate_deadlocking_schedule_requires_three_nodes_without_two_node_cycles(self):
+        exercise = DeadlockExercise()
+        exercise.seed = 13
+        exercise.num_transactions = 2
+        exercise.num_operations = 2
+        exercise.deadlocking = True
+        exercise.allow_two_node_cycles = False
+
+        with self.assertRaises(ValueError):
+            exercise._generate_schedule()
+
+    def test_generate_deadlocking_schedule_allows_two_node_cycles(self):
+        exercise = DeadlockExercise()
+        exercise.seed = 13
+        exercise.num_transactions = 2
+        exercise.num_operations = 2
+        exercise.deadlocking = True
+        exercise.allow_two_node_cycles = True
+
+        schedule = exercise._generate_schedule()
+
+        self.assertTrue(schedule.is_two_phase_locked())
+        self.assertTrue(schedule.is_legal())
+        self.assertTrue(schedule.has_deadlock())
 
     def test_generate_deadlocking_schedule(self):
         exercise = DeadlockExercise()
