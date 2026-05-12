@@ -203,6 +203,27 @@ class ConflictEquivalentExerciseTest(unittest.TestCase):
         # LaTeX output should contain LaTeX-formatted subscripts with braces
         self.assertIn("_{", output)
 
+    def test_generate_small_cyclic_exercise_without_allow_flag_falls_back_to_two_node_cycle(self):
+        exercise = ConflictEquivalentExercise()
+        exercise.seed = 17
+        exercise.num_schedules = 2
+        exercise.num_transactions = 2
+        exercise.num_operations = 2
+        exercise.allow_two_node_cycles = False
+
+        import io
+        import sys
+        captured_output = io.StringIO()
+        sys.stdout = captured_output
+
+        try:
+            exercise.generate()
+            output = captured_output.getvalue()
+        finally:
+            sys.stdout = sys.__stdout__
+
+        self.assertIn("Generated schedules:", output)
+
     def test_print_banner(self):
         """Test that print_banner outputs expected information."""
         exercise = ConflictEquivalentExercise()

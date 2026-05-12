@@ -1,7 +1,7 @@
 import unittest
 
 from dbtp import Schedule, Operation, OperationType
-from dbtp.directedgraph import DirectedGraph, CyclicGraphError
+from dbtp.directed_graph import DirectedGraph, CyclicGraphError
 
 class TestSchedule(unittest.TestCase):
     def test_str(self):

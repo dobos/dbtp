@@ -2,7 +2,7 @@ from typing import Iterable, Optional, Any, List, Protocol
 
 from .constants import Constants
 from .operation import OperationType, Operation
-from .directedgraph import DirectedGraph, Vertex, Edge, CyclicGraphError
+from .directed_graph import DirectedGraph, Vertex, Edge, CyclicGraphError
 
 class Schedule():
     def __init__(

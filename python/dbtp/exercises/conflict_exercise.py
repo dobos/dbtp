@@ -1,7 +1,7 @@
 import random
 
 from ..schedule import Schedule
-from ..schedule_generator import ScheduleGenerator
+from ..conflict_schedule_generator import ConflictScheduleGenerator
 
 
 class ConflictExercise:
@@ -12,7 +12,11 @@ class ConflictExercise:
         self.must_read = True
         self.must_write = False
         self.serializable = False
+        self.allow_two_node_cycles = False
         self.random_permutation = True
+        self.random_item_reuse = False
+        self.new_item_probability = 0.33
+        self.num_non_conflicting_operations = 0
         self.latex = False
         self.print_conflict_graphs = False
 
@@ -71,6 +75,19 @@ class ConflictExercise:
                 help="Allow non-serializable schedules"
             )
         parser.add_argument(
+            "--allow-two-node-cycles",
+            action="store_true",
+            dest="allow_two_node_cycles",
+            default=False,
+            help="Allow trivial two-transaction cycles in cyclic precedence graphs"
+        )
+        parser.add_argument(
+            "--no-allow-two-node-cycles",
+            action="store_false",
+            dest="allow_two_node_cycles",
+            help="Require cyclic precedence graphs to use at least three transactions"
+        )
+        parser.add_argument(
             "--random-permutation",
             action="store_true",
             dest="random_permutation",
@@ -82,6 +99,24 @@ class ConflictExercise:
             action="store_false",
             dest="random_permutation",
             help="Disable random conflict-equivalent operation permutations"
+        )
+        parser.add_argument(
+            "--random-item-reuse",
+            action="store_true",
+            dest="random_item_reuse",
+            help="Randomly reuse data items across operations"
+        )
+        parser.add_argument(
+            "--new-item-probability",
+            type=float,
+            dest="new_item_probability",
+            help="Probability of introducing a new data item (0.0-1.0, default 0.5)"
+        )
+        parser.add_argument(
+            "--num-non-conflicting-operations",
+            type=int,
+            dest="num_non_conflicting_operations",
+            help="Number of non-conflicting operations to insert at random positions (default 0)"
         )
         parser.add_argument(
             "--latex",
@@ -109,8 +144,16 @@ class ConflictExercise:
             self.must_write = args.must_write
         if hasattr(args, "serializable") and args.serializable is not None:
             self.serializable = args.serializable
+        if hasattr(args, "allow_two_node_cycles") and args.allow_two_node_cycles is not None:
+            self.allow_two_node_cycles = args.allow_two_node_cycles
         if hasattr(args, "random_permutation") and args.random_permutation is not None:
             self.random_permutation = args.random_permutation
+        if hasattr(args, "random_item_reuse") and args.random_item_reuse is not None:
+            self.random_item_reuse = args.random_item_reuse
+        if hasattr(args, "new_item_probability") and args.new_item_probability is not None:
+            self.new_item_probability = args.new_item_probability
+        if hasattr(args, "num_non_conflicting_operations") and args.num_non_conflicting_operations is not None:
+            self.num_non_conflicting_operations = args.num_non_conflicting_operations
         if hasattr(args, "latex") and args.latex is not None:
             self.latex = args.latex
         if hasattr(args, "print_conflict_graphs") and args.print_conflict_graphs is not None:
@@ -122,7 +165,11 @@ class ConflictExercise:
         print(f"Random seed: {self.seed}")
         print(f"Must read before write: {self.must_read}")
         print(f"Must write after read: {self.must_write}")
+        print(f"Allow two-node cycles: {self.allow_two_node_cycles}")
         print(f"Random conflict-equivalent permutation: {self.random_permutation}")
+        print(f"Random item reuse: {self.random_item_reuse}")
+        print(f"New item probability: {self.new_item_probability}")
+        print(f"Non-conflicting operations: {self.num_non_conflicting_operations}")
         print(f"Print conflict graphs: {self.print_conflict_graphs}")
 
     def _setup_random(self):
@@ -130,17 +177,37 @@ class ConflictExercise:
             random.seed(self.seed)
 
     def _generate_reference_schedule(self) -> Schedule:
-        graph = ScheduleGenerator.generate_random_precedence_graph(
+        avoid_two_node_cycles = (
+            not self.allow_two_node_cycles
+            and (
+                self.serializable
+                or (self.num_transactions >= 3 and self.num_operations >= 3)
+            )
+        )
+
+        generator = ConflictScheduleGenerator(
+            must_read_written=self.must_read,
+            must_write_read=self.must_write,
+            avoid_two_node_cycles=avoid_two_node_cycles,
+            random_item_reuse=self.random_item_reuse,
+            new_item_probability=self.new_item_probability
+        )
+
+        graph = generator.generate_random_precedence_graph(
             transaction_count=self.num_transactions,
             edge_count=self.num_operations,
             acyclic=self.serializable,
             cyclic=not self.serializable
         )
-        return ScheduleGenerator.generate_schedule_from_cyclic_precedence_graph(
+        schedule = generator.generate_schedule_from_cyclic_precedence_graph(
             graph,
-            must_read_written=self.must_read,
-            must_write_read=self.must_write
         )
+        if self.num_non_conflicting_operations > 0:
+            schedule = generator.add_non_conflicting_operations(
+                schedule,
+                self.num_non_conflicting_operations
+            )
+        return schedule
 
     def _random_conflict_equivalent_permutation(
         self,
@@ -150,11 +217,14 @@ class ConflictExercise:
     ) -> Schedule:
         if not self.random_permutation:
             return schedule
+        
+        generator = ConflictScheduleGenerator(
+            max_attempts=max_attempts
+        )
 
-        permutations = ScheduleGenerator.generate_random_conflict_equivalent_permutations(
+        permutations = generator.generate_random_conflict_equivalent_permutations(
             schedule,
             count=count,
-            max_attempts=max_attempts,
         )
         if not permutations:
             return schedule
@@ -181,10 +251,13 @@ class ConflictExercise:
         if max_attempts is None:
             max_attempts = max(count * 300, 1000)
 
-        equivalent = ScheduleGenerator.generate_random_conflict_equivalent_permutations(
+        generator = ConflictScheduleGenerator(
+            max_attempts=max_attempts
+        )
+
+        equivalent = generator.generate_random_conflict_equivalent_permutations(
             reference,
             count=count,
-            max_attempts=max_attempts
         )
 
         if len(equivalent) < count:

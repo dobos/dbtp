@@ -1,7 +1,7 @@
 import random
 
 from ..schedule import Schedule
-from ..schedule_generator import ScheduleGenerator
+from ..conflict_schedule_generator import ConflictScheduleGenerator
 from .conflict_exercise import ConflictExercise
 
 
@@ -61,17 +61,20 @@ class SerializableExercise(ConflictExercise):
         while len(schedules) < count and attempts < max_attempts:
             attempts += 1
 
-            graph = ScheduleGenerator.generate_random_precedence_graph(
+            generator = ConflictScheduleGenerator(
+                must_read_written=self.must_read,
+                must_write_read=self.must_write
+            )
+
+            graph = generator.generate_random_precedence_graph(
                 transaction_count=self.num_transactions,
                 edge_count=self.num_operations,
                 acyclic=serializable,
                 cyclic=not serializable
             )
 
-            candidate = ScheduleGenerator.generate_schedule_from_cyclic_precedence_graph(
+            candidate = generator.generate_schedule_from_cyclic_precedence_graph(
                 graph,
-                must_read_written=self.must_read,
-                must_write_read=self.must_write
             )
 
             candidate = self._random_conflict_equivalent_permutation(candidate)

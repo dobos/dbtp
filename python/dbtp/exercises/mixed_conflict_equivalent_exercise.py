@@ -49,12 +49,54 @@ class MixedConflictEquivalentExercise(ConflictExercise):
             operations=[Operation(tx=o.tx, op=o.op, item=o.item) for o in operations]
         )
 
+    @staticmethod
+    def _schedule_key(schedule: Schedule) -> tuple[str, ...]:
+        return tuple(str(op) for op in schedule.operations)
+
+    @staticmethod
+    def _swap_adjacent_conflicting_cross_tx_operations(
+        reference: Schedule,
+        operations: list[Operation],
+        swaps: int
+    ) -> list[Operation] | None:
+        """
+        Apply adjacent swaps between conflicting operations that belong to different
+        transactions. Adjacent swaps preserve per-transaction operation order.
+        """
+
+        candidate = [Operation(tx=o.tx, op=o.op, item=o.item) for o in operations]
+
+        for _ in range(swaps):
+            swappable_indices = [
+                i
+                for i in range(len(candidate) - 1)
+                if candidate[i].tx != candidate[i + 1].tx
+                and candidate[i].is_in_conflict_with(candidate[i + 1])
+            ]
+
+            if not swappable_indices:
+                return None
+
+            idx = random.choice(swappable_indices)
+            candidate[idx], candidate[idx + 1] = candidate[idx + 1], candidate[idx]
+
+        return candidate
+
     def _generate_non_equivalent_schedules(
         self,
         reference: Schedule,
         count: int,
         max_attempts: int = None
     ) -> list[Schedule]:
+        
+        """
+        Generate schedules that are not conflict-equivalent to the reference schedule.
+
+        Candidates are produced by swapping adjacent operations only when they are
+        conflicting operations from different transactions. This guarantees that the
+        relative operation order inside each transaction is preserved.
+        """
+
         if count <= 0:
             return []
 
@@ -65,14 +107,26 @@ class MixedConflictEquivalentExercise(ConflictExercise):
         seen = set()
         base_ops = reference.operations
         attempts = 0
+        reference_key = self._schedule_key(reference)
 
         while len(non_equivalent) < count and attempts < max_attempts:
             attempts += 1
 
-            shuffled = random.sample(base_ops, len(base_ops))
-            candidate = self._copy_schedule_with_operations(reference, shuffled)
-            candidate = self._random_conflict_equivalent_permutation(candidate)
-            candidate_key = tuple(str(op) for op in candidate.operations)
+            max_swaps = max(1, min(4, len(base_ops) - 1))
+            swap_count = random.randint(1, max_swaps)
+            swapped = self._swap_adjacent_conflicting_cross_tx_operations(
+                reference,
+                base_ops,
+                swaps=swap_count
+            )
+            if swapped is None:
+                continue
+
+            candidate = self._copy_schedule_with_operations(reference, swapped)
+            candidate_key = self._schedule_key(candidate)
+
+            if candidate_key == reference_key:
+                continue
 
             if candidate_key in seen:
                 continue
@@ -98,6 +152,7 @@ class MixedConflictEquivalentExercise(ConflictExercise):
             self._generate_reference_schedule()
         )
         reference.id = 1
+        reference_key = self._schedule_key(reference)
 
         equivalent = self._generate_conflict_equivalent_schedules(
             reference,
@@ -109,8 +164,36 @@ class MixedConflictEquivalentExercise(ConflictExercise):
             self.num_non_equivalent
         )
 
-        equivalent = [self._random_conflict_equivalent_permutation(s) for s in equivalent]
-        non_equivalent = [self._random_conflict_equivalent_permutation(s) for s in non_equivalent]
+        # Keep equivalent schedules different from the reference schedule.
+        adjusted_equivalent = []
+        for schedule in equivalent:
+            candidate = schedule
+            for _ in range(20):
+                candidate = self._random_conflict_equivalent_permutation(candidate)
+                if self._schedule_key(candidate) != reference_key:
+                    break
+
+            if self._schedule_key(candidate) == reference_key:
+                raise RuntimeError(
+                    "Could not generate a conflict-equivalent schedule different from the reference"
+                )
+
+            adjusted_equivalent.append(candidate)
+        equivalent = adjusted_equivalent
+
+        # Non-equivalent schedules are already different by construction; keep this
+        # defensive check so we never output the same schedule as the reference.
+        adjusted_non_equivalent = []
+        for schedule in non_equivalent:
+            candidate = self._random_conflict_equivalent_permutation(schedule)
+            if self._schedule_key(candidate) == reference_key:
+                candidate = schedule
+            if self._schedule_key(candidate) == reference_key:
+                raise RuntimeError(
+                    "Could not keep non-equivalent schedule different from the reference"
+                )
+            adjusted_non_equivalent.append(candidate)
+        non_equivalent = adjusted_non_equivalent
 
         for schedule in equivalent:
             if not reference.is_conflict_equivalent_with(schedule):
@@ -146,3 +229,21 @@ class MixedConflictEquivalentExercise(ConflictExercise):
         print("Solutions:")
         print(f"Equivalent to reference: {sorted(equivalent_ids)}")
         print(f"Not equivalent to reference: {sorted(non_equivalent_ids)}")
+        print()
+
+        all_schedules = [reference] + generated
+        serializable_ids = [
+            schedule.id
+            for schedule in all_schedules
+            if schedule.is_conflict_serializable()
+        ]
+        non_serializable_ids = [
+            schedule.id
+            for schedule in all_schedules
+            if not schedule.is_conflict_serializable()
+        ]
+
+        print("Serializability:")
+        print(f"Conflict-serializable: {sorted(serializable_ids)}")
+        print(f"Not conflict-serializable: {sorted(non_serializable_ids)}")
+        print()
